@@ -74,6 +74,18 @@ async function runOne(args: RunOneArgs): Promise<RegisterResult> {
         emit(event("init", `starting ${index + 1}/${count}`));
 
         identity = createIdentity(config);
+        // dry-run must not consume live mailbox quota (e.g. liao.bot @bwen.net).
+        if (mailbox.allocateAddress && !config.dryRun) {
+            // Providers like liao.bot hand out the real mailbox address; the
+            // locally generated email/domain are replaced with the allocated one.
+            const allocated = (await mailbox.allocateAddress()).trim();
+            const at = allocated.indexOf("@");
+            identity = {
+                ...identity,
+                email: allocated,
+                domain: at >= 0 ? allocated.slice(at + 1) : identity.domain,
+            };
+        }
         emit(event("identity", identity.email));
 
         const accountEmail = identity.email;
@@ -122,7 +134,13 @@ async function resolveDeps(overrides: Partial<PipelineDeps> = {}): Promise<Pipel
     const createSink =
         overrides.createSink ??
         ((config: AutoRegConfig): AccountSink =>
-            createJsonSink({ accountsPath: config.output.accountsPath }));
+            // With output.encrypt on, the sink seals the accounts file in an
+            // AES-256-GCM envelope; the passphrase is resolved inside the sink
+            // (options.password or AUTO_REG_VAULT_PASSWORD), never stored here.
+            createJsonSink({
+                accountsPath: config.output.accountsPath,
+                encrypt: config.output.encrypt,
+            }));
 
     return { createIdentity, createMailbox, createEngine, createSink };
 }

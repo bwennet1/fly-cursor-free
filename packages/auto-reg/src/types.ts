@@ -33,15 +33,25 @@ export interface AutoRegConfig {
 }
 
 export interface EmailConfig {
-    provider: "imap" | "tempmail_plus" | "manual";
+    provider: "imap" | "tempmail_plus" | "manual" | "liao_bot";
     domain: string;
     /** Catch-all / receiving inbox for IMAP or tempmail.plus */
     receivingEmail?: string;
     receivingPin?: string;
     imap?: ImapConfig;
+    liao?: LiaoBotConfig;
     codeRegex: string;
     pollMs: number;
     pollTimeoutMs: number;
+}
+
+/** https://liao.bot/email-api/ — allocate via get-email, poll via first-email */
+export interface LiaoBotConfig {
+    baseUrl: string;
+    /** GET {baseUrl}/get-email?domain={domain} */
+    allocatePath: string;
+    /** GET {baseUrl}/first-email?femail={email} */
+    firstEmailPath: string;
 }
 
 export interface ImapConfig {
@@ -61,6 +71,8 @@ export interface IdentityConfig {
 
 export interface OutputConfig {
     accountsPath: string;
+    /** When true, accounts file is AES-256-GCM. Passphrase from AUTO_REG_VAULT_PASSWORD. */
+    encrypt: boolean;
 }
 
 export interface SelectorConfig {
@@ -94,6 +106,8 @@ export type EventSink = (event: PipelineEvent) => void;
 
 export interface MailboxProvider {
     readonly name: string;
+    /** Optional: allocate a real mailbox address (e.g. liao.bot @bwen.net). */
+    allocateAddress?(): Promise<string>;
     waitForCode(accountEmail: string, since: Date): Promise<string>;
 }
 

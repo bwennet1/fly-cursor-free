@@ -1,3 +1,5 @@
+import type { Browser, Page } from "playwright";
+
 import { AutoRegError, ErrorCodes } from "../errors.ts";
 import { parseSessionCookie } from "../token/session.ts";
 import type {
@@ -9,49 +11,14 @@ import type {
 } from "../types.js";
 
 /**
- * Minimal structural typings for the slice of the Playwright API this engine
- * uses. Playwright is an optional peer dependency loaded lazily at runtime, so
- * we deliberately avoid a compile-time dependency on its published types.
+ * Playwright is a regular dependency of this package (`npm install` brings in
+ * the library), but the browser binaries are a separate download:
+ * `npx playwright install chromium`.
  */
-interface PwLocator {
-    count(): Promise<number>;
-    first(): PwLocator;
-    nth(index: number): PwLocator;
-    fill(value: string, options?: { timeout?: number }): Promise<void>;
-}
+type PlaywrightModule = typeof import("playwright");
 
-interface PwPage {
-    goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<unknown>;
-    content(): Promise<string>;
-    url(): string;
-    locator(selector: string): PwLocator;
-    fill(selector: string, value: string, options?: { timeout?: number }): Promise<void>;
-    click(selector: string, options?: { timeout?: number }): Promise<void>;
-    waitForTimeout(ms: number): Promise<void>;
-}
-
-interface PwCookie {
-    name: string;
-    value: string;
-}
-
-interface PwContext {
-    newPage(): Promise<PwPage>;
-    cookies(): Promise<PwCookie[]>;
-}
-
-interface PwBrowser {
-    newContext(options?: unknown): Promise<PwContext>;
-    close(): Promise<void>;
-}
-
-interface PwBrowserType {
-    launch(options?: { headless?: boolean; timeout?: number }): Promise<PwBrowser>;
-}
-
-interface PlaywrightModule {
-    chromium: PwBrowserType;
-}
+/** Matches Playwright's error text when the browser binaries were never downloaded. */
+const MISSING_BROWSER_PATTERN = /executable doesn't exist|playwright install/i;
 
 /** Default text/markers that identify an anti-bot challenge page. */
 const DEFAULT_CHALLENGE_PATTERN = /turnstile|captcha|hcaptcha|recaptcha|cf-chl|challenge|are you (a )?human/i;
@@ -63,24 +30,46 @@ const PHONE_PATTERN = /phone|radar/i;
 const CHALLENGE_POLL_MS = 1_000;
 
 /**
- * Loads Playwright on demand. Kept out of the module's static import graph so
- * that constructing the engine (and running tests) never requires the browser
- * driver to be installed.
+ * Loads the Playwright library on demand. It is a declared dependency, but we
+ * keep it out of the module's static import graph so that dry-run and tests
+ * never pay its load cost (only `register()` does).
  */
 async function loadPlaywright(): Promise<PlaywrightModule> {
     try {
-        return (await import("playwright")) as unknown as PlaywrightModule;
+        return await import("playwright");
     } catch (error) {
         throw new AutoRegError(
             "open_signup",
             ErrorCodes.ENGINE,
-            `Playwright is not installed. Install it with: npx playwright install chromium (${(error as Error).message})`,
+            "the playwright package failed to load; run `npm install` in packages/auto-reg, " +
+                `then download the browser with: npx playwright install chromium (${(error as Error).message})`,
         );
     }
 }
 
+/**
+ * Launches Chromium, translating Playwright's "executable doesn't exist" error
+ * into an actionable hint: the library is installed via npm, but the browser
+ * binaries come from `npx playwright install chromium`.
+ */
+async function launchChromium(playwright: PlaywrightModule, headed: boolean): Promise<Browser> {
+    try {
+        return await playwright.chromium.launch({ headless: !headed });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (MISSING_BROWSER_PATTERN.test(message)) {
+            throw new AutoRegError(
+                "open_signup",
+                ErrorCodes.ENGINE,
+                `Chromium is not downloaded yet; run: npx playwright install chromium (${message})`,
+            );
+        }
+        throw error;
+    }
+}
+
 /** True when the selector matches at least one element on the page. */
-async function present(page: PwPage, selector: string): Promise<boolean> {
+async function present(page: Page, selector: string): Promise<boolean> {
     if (!selector) return false;
     try {
         return (await page.locator(selector).count()) > 0;
@@ -95,7 +84,7 @@ async function present(page: PwPage, selector: string): Promise<boolean> {
  * a `challengeHint` is configured, also treats it as a CSS selector and as a
  * plain substring of the page text.
  */
-async function looksLikeChallenge(page: PwPage, hint: string): Promise<boolean> {
+async function looksLikeChallenge(page: Page, hint: string): Promise<boolean> {
     let html = "";
     try {
         html = (await page.content()).toLowerCase();
@@ -118,7 +107,7 @@ async function looksLikeChallenge(page: PwPage, hint: string): Promise<boolean> 
  * (or on timeout) we abort with a CHALLENGE_REQUIRED error.
  */
 async function handleChallenge(
-    page: PwPage,
+    page: Page,
     config: AutoRegConfig,
     emit: (stage: RegisterStage, message: string) => void,
 ): Promise<void> {
@@ -151,7 +140,7 @@ async function handleChallenge(
 }
 
 /** Aborts with PHONE_REQUIRED when the page URL or text asks for phone/radar verification. */
-async function assertNoPhoneVerification(page: PwPage, stage: RegisterStage): Promise<void> {
+async function assertNoPhoneVerification(page: Page, stage: RegisterStage): Promise<void> {
     const url = page.url();
     let html = "";
     try {
@@ -169,7 +158,7 @@ async function assertNoPhoneVerification(page: PwPage, stage: RegisterStage): Pr
 }
 
 /** Fills the verification code across one or several OTP input boxes. */
-async function fillOtp(page: PwPage, selector: string, code: string): Promise<void> {
+async function fillOtp(page: Page, selector: string, code: string): Promise<void> {
     const inputs = page.locator(selector);
     const count = await inputs.count();
     if (count <= 1) {
@@ -205,7 +194,7 @@ export class BrowserEngine implements RegisterEngine {
         };
 
         const playwright = await loadPlaywright();
-        const browser = await playwright.chromium.launch({ headless: !config.headed });
+        const browser = await launchChromium(playwright, config.headed);
         try {
             const context = await browser.newContext();
             const page = await context.newPage();

@@ -6,11 +6,16 @@
     const PACKAGE_DOC_URL = "https://github.com/bwennet1/fly-cursor-free/tree/main/packages/auto-reg";
     const MERGE_PLAN_URL = "https://github.com/bwennet1/fly-cursor-free/blob/main/docs/AUTO_REG_MERGE_PLAN.md";
 
+    const installCommand =
+        "npm --prefix packages/auto-reg install && npx --prefix packages/auto-reg playwright install chromium";
     const testCommand = "cd packages/auto-reg && npm test";
     const dryRunCommand =
-        "cd packages/auto-reg && node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json";
+        "cd packages/auto-reg && AUTO_REG_VAULT_PASSWORD='一段强口令' node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json";
     const runCommand =
-        "cd packages/auto-reg && node --experimental-strip-types src/cli.ts register --config config.local.json";
+        "cd packages/auto-reg && AUTO_REG_VAULT_PASSWORD='一段强口令' node --experimental-strip-types src/cli.ts register --config config.local.json";
+
+    const allocateEmailApi = "GET https://liao.bot/email-api/get-email?domain=bwen.net";
+    const firstEmailApi = "GET https://liao.bot/email-api/first-email?femail=<allocated>";
 
     const copiedKey = ref("");
 
@@ -59,8 +64,8 @@
                     <p class="intro-text">
                         <code>packages/auto-reg</code> 是<b>本仓库自研的 clean-room 实现</b>（MIT
                         许可，TypeScript，Node 22+ 直接以
-                        <code>--experimental-strip-types</code> 运行）：注册编排器 + 邮箱取码 + 浏览器驱动 + JSON
-                        账号落盘。它<b>不是</b>
+                        <code>--experimental-strip-types</code> 运行）：注册编排器 + 邮箱取码 +
+                        <b>Playwright</b> 浏览器驱动（已声明为本包依赖）+ 账号落盘（默认 AES-256-GCM 加密）。它<b>不是</b>
                         <code>vendor/</code> 目录里收录的闭源或 CC BY-NC-ND（禁止演绎）项目，未复制其任何代码，仅参考公开流程做了独立实现。
                     </p>
                     <p class="link-row">
@@ -86,7 +91,9 @@
                     </div>
                     <p class="intro-text">
                         以下两条命令均不会真正注册账号：单元测试离线运行；<code>--dry-run</code>
-                        只校验配置、生成身份并打印计划，不打开浏览器。
+                        只校验配置、生成身份并走通流水线形状，不打开浏览器、不联网。但账号库<b>默认加密</b>，而
+                        <code>--dry-run</code> 也会写入本地账号库，因此<b>连 dry-run 也需先设置
+                        <code>AUTO_REG_VAULT_PASSWORD</code></b>（缺口令会在配置校验阶段报错；下面命令里已带上示例口令）。
                     </p>
 
                     <div class="command-row">
@@ -123,16 +130,50 @@
                         <span>正式使用步骤</span>
                     </div>
                     <p class="intro-text">
-                        1️⃣ 复制示例配置：把
-                        <code>packages/auto-reg/examples/config.example.json</code> 复制一份（如
-                        <code>config.local.json</code>）；<br />
-                        2️⃣ 填写你的<b>域名</b>（用于生成注册邮箱地址）和<b>收件邮箱</b>（catch-all /
-                        临时邮箱，用于接收验证码）；<br />
-                        3️⃣ 去掉 <code>--dry-run</code>，指向你的本地配置运行：
+                        1️⃣ <b>安装依赖并下载 Chromium</b>（浏览器引擎基于 Playwright，仅正式注册需要，dry-run
+                        无需）：
                     </p>
 
                     <div class="command-row">
-                        <span class="command-step">3. 正式运行</span>
+                        <span class="command-step">1. 安装依赖</span>
+                        <code class="command-code">{{ installCommand }}</code>
+                        <el-button
+                            size="small"
+                            :icon="CopyDocument"
+                            :type="copiedKey === 'install' ? 'success' : 'default'"
+                            @click="copyCommand(installCommand, 'install')"
+                        >
+                            {{ copiedKey === "install" ? "已复制" : "复制" }}
+                        </el-button>
+                    </div>
+
+                    <p class="intro-text">
+                        2️⃣ 复制示例配置：把
+                        <code>packages/auto-reg/examples/config.example.json</code> 复制一份（如
+                        <code>config.local.json</code>）；<br />
+                        3️⃣ 确认收码配置：<b>默认走 liao.bot 邮件 API + <code>bwen.net</code> 域名</b>（也可换成自有域名 +
+                        IMAP）。liao.bot 用到两个 <code>GET</code> 接口——先分配一个
+                        <code>@bwen.net</code> 地址，再对该地址轮询查信取验证码：
+                    </p>
+
+                    <div class="command-row">
+                        <span class="command-step">分配邮箱</span>
+                        <code class="command-code">{{ allocateEmailApi }}</code>
+                    </div>
+                    <div class="command-row">
+                        <span class="command-step">查信取码</span>
+                        <code class="command-code">{{ firstEmailApi }}</code>
+                    </div>
+
+                    <p class="intro-text">
+                        4️⃣ <b>设置账号库加密口令</b>：账号库<b>默认加密</b>（<code>output.encrypt</code> 默认
+                        <code>true</code>，AES-256-GCM，口令经 scrypt 派生），口令通过环境变量
+                        <code>AUTO_REG_VAULT_PASSWORD</code> 注入、<b>切勿写进配置文件</b>，register 前必须设置；<br />
+                        5️⃣ 去掉 <code>--dry-run</code>，设置口令后指向本地配置运行：
+                    </p>
+
+                    <div class="command-row">
+                        <span class="command-step">5. 正式运行</span>
                         <code class="command-code">{{ runCommand }}</code>
                         <el-button
                             size="small"
@@ -147,7 +188,8 @@
                     <p class="license-tip">
                         ⚠️ 边界说明：遇到人机验证（Turnstile
                         等）时<b>需要人工在弹出的浏览器窗口中手动完成</b>（headed 模式，不做自动过验证）；该 CLI
-                        <b>不做机器码重置</b>，只负责注册与账号落盘；注册结果写入配置指定的 JSON 文件，请自行妥善保管。
+                        <b>不做机器码重置</b>，只负责注册与账号落盘；账号库含密码与 session token，默认加密后需用同一
+                        <code>AUTO_REG_VAULT_PASSWORD</code> 口令解密，口令丢失不可恢复，请妥善备份。
                     </p>
                 </el-card>
             </div>

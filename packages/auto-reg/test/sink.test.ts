@@ -4,7 +4,8 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { createJsonSink } from "../src/sink/json.ts";
+import { createJsonSink, readAccounts } from "../src/sink/json.ts";
+import { isVaultEnvelope } from "../src/sink/crypto.ts";
 import { AutoRegError } from "../src/errors.ts";
 import type { RegisterResult } from "../src/types.js";
 
@@ -143,5 +144,78 @@ test("persists credentials to disk (the accounts file is the local vault)", asyn
         const raw = await fs.readFile(accountsPath, "utf8");
         assert.match(raw, /s3cr3t-pw/);
         assert.match(raw, /tok_abc123/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// encrypted mode (encrypt: true) — see test/vault.test.ts for the full suite
+// ---------------------------------------------------------------------------
+
+const VAULT_PASSWORD = "unit-test-vault-pass";
+
+test("createJsonSink without encrypt still writes plaintext (backwards compatible)", async () => {
+    await withTmpDir(async (dir) => {
+        const accountsPath = path.join(dir, "accounts.json");
+        await createJsonSink({ accountsPath }).append(makeResult());
+
+        const parsed = JSON.parse(await fs.readFile(accountsPath, "utf8"));
+        assert.ok(Array.isArray(parsed), "default mode must remain a plaintext array");
+    });
+});
+
+test("encrypt: true writes an AES-256-GCM envelope with no plaintext secrets", async () => {
+    await withTmpDir(async (dir) => {
+        const accountsPath = path.join(dir, "accounts.json");
+        const sink = createJsonSink({ accountsPath, encrypt: true, password: VAULT_PASSWORD });
+
+        await sink.append(makeResult());
+
+        const raw = await fs.readFile(accountsPath, "utf8");
+        const parsed = JSON.parse(raw);
+        assert.ok(isVaultEnvelope(parsed));
+        assert.equal(parsed.algo, "aes-256-gcm");
+        assert.equal(parsed.kdf, "scrypt");
+        assert.doesNotMatch(raw, /s3cr3t-pw/);
+        assert.doesNotMatch(raw, /tok_abc123/);
+        assert.doesNotMatch(raw, /ada@example\.com/);
+    });
+});
+
+test("encrypted appends accumulate in order and readAccounts decrypts them", async () => {
+    await withTmpDir(async (dir) => {
+        const accountsPath = path.join(dir, "accounts.json");
+        const sink = createJsonSink({ accountsPath, encrypt: true, password: VAULT_PASSWORD });
+
+        for (const email of ["a@example.com", "b@example.com", "c@example.com"]) {
+            await sink.append(
+                makeResult({
+                    identity: {
+                        firstName: "N",
+                        lastName: "N",
+                        email,
+                        password: "pw",
+                        domain: "example.com",
+                    },
+                }),
+            );
+        }
+
+        const accounts = await readAccounts(accountsPath, VAULT_PASSWORD);
+        assert.deepEqual(
+            accounts.map((r) => r.identity.email),
+            ["a@example.com", "b@example.com", "c@example.com"],
+        );
+    });
+});
+
+test("encrypted accounts file keeps mode 0600", async () => {
+    await withTmpDir(async (dir) => {
+        const accountsPath = path.join(dir, "accounts.json");
+        const sink = createJsonSink({ accountsPath, encrypt: true, password: VAULT_PASSWORD });
+
+        await sink.append(makeResult());
+
+        const stat = await fs.stat(accountsPath);
+        assert.equal(stat.mode & 0o777, 0o600);
     });
 });

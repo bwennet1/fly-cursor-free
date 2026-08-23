@@ -9,6 +9,7 @@ export const ENV_KEYS = {
     imapPassword: "AUTO_REG_IMAP_PASSWORD",
     tempmailPin: "AUTO_REG_TEMPMAIL_PIN",
     domain: "AUTO_REG_DOMAIN",
+    vaultPassword: "AUTO_REG_VAULT_PASSWORD",
 } as const;
 
 export const DEFAULT_SIGNUP_URL = "https://authenticator.cursor.sh/sign-up";
@@ -35,6 +36,7 @@ export function defaultConfig(): AutoRegConfig {
         },
         output: {
             accountsPath: "accounts.json",
+            encrypt: true,
         },
         selectors: {
             firstName: 'input[name="first_name"]',
@@ -96,6 +98,30 @@ export function applyEnvOverrides(
     return config;
 }
 
+/**
+ * Resolves the passphrase for the encrypted accounts file. Returns undefined
+ * when output.encrypt is off. Throws AutoRegError(init/CONFIG) when
+ * encryption is on but no passphrase is available — this applies to dry runs
+ * too, since a dry run still persists results; tests can inject a passphrase
+ * via the `password` argument (or a custom `env`) instead of process.env.
+ */
+export function resolveVaultPassword(
+    config: AutoRegConfig,
+    env: Record<string, string | undefined> = process.env,
+    password?: string,
+): string | undefined {
+    if (!config.output.encrypt) {
+        return undefined;
+    }
+    const resolved = password ?? env[ENV_KEYS.vaultPassword];
+    if (!resolved) {
+        throw configError(
+            `output.encrypt is enabled but no vault password is set (${ENV_KEYS.vaultPassword})`,
+        );
+    }
+    return resolved;
+}
+
 /** Throws AutoRegError(init/CONFIG) when a required field is missing or invalid. */
 export function validateConfig(config: AutoRegConfig): AutoRegConfig {
     const missing: string[] = [];
@@ -110,9 +136,12 @@ export function validateConfig(config: AutoRegConfig): AutoRegConfig {
     if (!(config.identity.passwordLength >= 8)) missing.push("identity.passwordLength (>= 8)");
     if (!config.output.accountsPath) missing.push("output.accountsPath");
 
-    if (!["imap", "tempmail_plus", "manual"].includes(config.email.provider)) {
+    if (!["imap", "tempmail_plus", "manual", "liao_bot"].includes(config.email.provider)) {
         throw configError(`invalid email.provider: ${String(config.email.provider)}`);
     }
+    // liao_bot needs neither imap credentials nor a receiving inbox: the
+    // mailbox is allocated per run and email.liao falls back to the built-in
+    // https://liao.bot/email-api endpoints.
     if (config.email.provider === "imap") {
         const imap = config.email.imap;
         if (!imap?.host) missing.push("email.imap.host");

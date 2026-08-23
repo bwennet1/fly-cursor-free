@@ -28,7 +28,7 @@ function makeConfig(overrides: Partial<AutoRegConfig> = {}): AutoRegConfig {
             pollTimeoutMs: 100,
         },
         identity: { emailPrefix: "user", localPartLength: 8, passwordLength: 16 },
-        output: { accountsPath: "/tmp/auto-reg-should-not-be-written.json" },
+        output: { accountsPath: "/tmp/auto-reg-should-not-be-written.json", encrypt: false },
         selectors: {
             firstName: "#firstName",
             lastName: "#lastName",
@@ -209,4 +209,116 @@ test("a count of 0 performs no registrations", async () => {
     assert.equal(results.length, 0);
     assert.equal(engineCalls.length, 0);
     assert.equal(appended.length, 0);
+});
+
+function makeAllocatingStubDeps(allocateAddress: () => Promise<string>) {
+    let counter = 0;
+    const engineCalls: string[] = [];
+    const waitForCodeCalls: string[] = [];
+
+    const mailbox: MailboxProvider = {
+        name: "allocating-mailbox",
+        allocateAddress,
+        async waitForCode(accountEmail: string): Promise<string> {
+            waitForCodeCalls.push(accountEmail);
+            return "654321";
+        },
+    };
+
+    const deps: Partial<PipelineDeps> = {
+        createIdentity: (config: AutoRegConfig) => {
+            counter += 1;
+            return {
+                firstName: `First${counter}`,
+                lastName: `Last${counter}`,
+                email: `local${counter}@${config.email.domain}`,
+                password: `pw-${counter}`,
+                domain: config.email.domain,
+            };
+        },
+        createMailbox: () => mailbox,
+        createEngine: () => ({
+            name: "stub-engine",
+            async register({ identity, waitForCode }) {
+                engineCalls.push(identity.email);
+                const code = await waitForCode(new Date());
+                return { sessionToken: `session-for-${identity.email}`, code };
+            },
+        }),
+        createSink: () => ({
+            async append(): Promise<void> {},
+        }),
+    };
+
+    return { deps, engineCalls, waitForCodeCalls };
+}
+
+test("mailbox.allocateAddress replaces the identity email and domain", async () => {
+    let allocations = 0;
+    const { deps, engineCalls, waitForCodeCalls } = makeAllocatingStubDeps(async () => {
+        allocations += 1;
+        return `alloc${allocations}@bwen.net`;
+    });
+    const events: PipelineEvent[] = [];
+
+    const results = await runRegister(makeConfig({ count: 2, dryRun: false }), (e) => events.push(e), deps);
+
+    assert.equal(allocations, 2);
+    assert.ok(results.every((r) => r.ok));
+    assert.equal(results[0].identity.email, "alloc1@bwen.net");
+    assert.equal(results[0].identity.domain, "bwen.net");
+    assert.equal(results[1].identity.email, "alloc2@bwen.net");
+    // The generated name/password survive; only email/domain are swapped.
+    assert.equal(results[0].identity.firstName, "First1");
+    assert.equal(results[0].sessionToken, "session-for-alloc1@bwen.net");
+    assert.deepEqual(engineCalls, ["alloc1@bwen.net", "alloc2@bwen.net"]);
+    assert.deepEqual(waitForCodeCalls, ["alloc1@bwen.net", "alloc2@bwen.net"]);
+    // The identity event reports the allocated address, not the local one.
+    const identityEvents = events.filter((e) => e.stage === "identity").map((e) => e.message);
+    assert.deepEqual(identityEvents, ["alloc1@bwen.net", "alloc2@bwen.net"]);
+});
+
+test("a failing allocateAddress records a failed iteration and continues", async () => {
+    let allocations = 0;
+    const { deps, engineCalls } = makeAllocatingStubDeps(async () => {
+        allocations += 1;
+        if (allocations === 1) {
+            throw new AutoRegError("identity", "MAILBOX_ALLOCATE", "no addresses left");
+        }
+        return `alloc${allocations}@bwen.net`;
+    });
+
+    const results = await runRegister(makeConfig({ count: 2, dryRun: false }), undefined, deps);
+
+    assert.equal(results.length, 2);
+    assert.equal(results[0].ok, false);
+    assert.equal(results[0].stage, "identity");
+    assert.match(results[0].error ?? "", /no addresses left/);
+    assert.ok(results[1].ok);
+    assert.equal(results[1].identity.email, "alloc2@bwen.net");
+    assert.deepEqual(engineCalls, ["alloc2@bwen.net"]);
+});
+
+test("dry-run skips allocateAddress so live mailbox quota is not consumed", async () => {
+    let allocations = 0;
+    const { deps } = makeAllocatingStubDeps(async () => {
+        allocations += 1;
+        return "should-not-be-used@bwen.net";
+    });
+
+    const results = await runRegister(makeConfig({ count: 1, dryRun: true }), undefined, deps);
+
+    assert.equal(allocations, 0);
+    assert.ok(results[0].ok);
+    assert.equal(results[0].identity.email, "local1@example.com");
+});
+
+test("a mailbox without allocateAddress keeps the generated identity email", async () => {
+    const { deps } = makeStubDeps();
+
+    const results = await runRegister(makeConfig({ count: 1 }), undefined, deps);
+
+    assert.ok(results[0].ok);
+    assert.equal(results[0].identity.email, "user1@example.com");
+    assert.equal(results[0].identity.domain, "example.com");
 });

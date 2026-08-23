@@ -12,12 +12,14 @@ Clean-room（净室自研）的 Cursor 批量注册编排器。它把「身份�
 - [快速开始（dry-run）](#快速开始dry-run)
 - [配置](#配置)
   - [域名](#域名)
+  - [邮箱：liao.bot（默认，@bwen.net）](#邮箱liaobot默认bwennet)
   - [邮箱：IMAP](#邮箱imap)
   - [邮箱：tempmail.plus](#邮箱tempmailplus)
   - [邮箱：manual（手动 / 测试）](#邮箱manual手动--测试)
   - [环境变量覆盖](#环境变量覆盖)
 - [命令行](#命令行)
 - [输出与安全](#输出与安全)
+  - [账号库加密](#账号库加密)
 - [编程式 API](#编程式-api)
 - [风险（务必先读）](#风险务必先读)
 - [不做机器码](#不做机器码)
@@ -25,7 +27,20 @@ Clean-room（净室自研）的 Cursor 批量注册编排器。它把「身份�
 ## 运行环境
 
 - Node.js **>= 22**（用到内置的 TypeScript 类型擦除 `--experimental-strip-types`，直接跑 `.ts`，无需编译步骤）。
-- 真实注册（非 dry-run）时才需要浏览器执行引擎的相关依赖与可访问的邮箱。dry-run 完全离线。
+- **浏览器执行引擎基于 [Playwright](https://playwright.dev/)，已作为本包依赖声明在 `package.json`**。安装依赖并下载 Chromium（浏览器二进制不随 `npm install` 下载，需单独执行一次 `playwright install chromium`）：
+
+```bash
+# 在 packages/auto-reg 目录下
+npm install && npx playwright install chromium
+```
+
+在仓库根目录可以用等价的一条命令：
+
+```bash
+npm run auto-reg:install
+```
+
+- 真实注册（非 dry-run）时才需要上面的 Playwright / Chromium 与可访问的邮箱。**dry-run 完全离线，不需要安装 Chromium 也能跑通流水线形状。**
 
 ## 快速开始（dry-run）
 
@@ -50,6 +65,8 @@ node --experimental-strip-types src/cli.ts register --dry-run
 
 dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例配置为当前目录下的 `accounts.json`）。控制台只会打印每个账号的 **email 和 ok/stage**，不会打印密码或 token。
 
+> 账号库[默认加密](#账号库加密)，而 dry-run 也会真实写入 sink，所以**即便只是 dry-run，也需要先 `export AUTO_REG_VAULT_PASSWORD=...`**（否则会在配置校验阶段报错）。
+
 ## 配置
 
 配置是一个 JSON 文件；加载时会**在内置默认值之上做深合并**，再套用 `AUTO_REG_*` 环境变量，最后做校验。完整示例见 [`examples/config.example.json`](examples/config.example.json)。字段结构定义见 [`src/types.ts`](src/types.ts)。
@@ -67,12 +84,15 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 | `identity.emailPrefix` | 邮箱本地部分前缀，例如 `dev.` |
 | `identity.localPartLength` | 随机本地部分长度（`>= 4`） |
 | `identity.passwordLength` | 生成密码长度（`>= 8`） |
-| `output.accountsPath` | 账号落盘的 JSON 文件路径（相对当前工作目录解析） |
+| `output.accountsPath` | 账号落盘文件路径（相对当前工作目录解析） |
+| `output.encrypt` | **默认 `true`**：账号库 AES-256-GCM 加密，口令取自 `AUTO_REG_VAULT_PASSWORD`（见[账号库加密](#账号库加密)） |
 | `selectors` | 注册表单的 CSS 选择器（页面变动时需自行调整） |
 
 ### 域名
 
-`email.domain` 是生成邮箱地址所用的域名。**目前开源方案能稳定收码的现实前提，是你自己拥有一个配好 catch-all 的域名**（临时邮箱域名经常被拦截）。
+`email.domain` 是生成 / 分配邮箱地址所用的域名。**默认与推荐组合是 liao.bot 邮件服务 + `bwen.net` 域名**（见 [邮箱：liao.bot](#邮箱liaobot默认bwennet)）；示例配置里 `email.domain` 即为 `bwen.net`。
+
+如果改用自有 catch-all 域名 + IMAP，请把 `email.domain` 换成你自己的域名——**开源方案能稳定收码的现实前提，是你自己拥有一个配好 catch-all 的域名**（临时邮箱域名经常被拦截）。
 
 支持用 `/` 分隔配置一个「域名池」，每次注册会随机挑一个，便于分散：
 
@@ -82,9 +102,41 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 
 也可用环境变量 `AUTO_REG_DOMAIN` 覆盖。
 
+### 邮箱：liao.bot（默认，@bwen.net）
+
+默认的收码通道是 [liao.bot](https://liao.bot/) 邮件 API：先按域名**分配**一个 `@bwen.net` 地址，再对该地址**轮询查信**取验证码。把 `email.provider` 设为 `"liao_bot"`，`email.domain` 设为 `bwen.net`，并填 `email.liao`：
+
+```json
+{
+  "email": {
+    "provider": "liao_bot",
+    "domain": "bwen.net",
+    "liao": {
+      "baseUrl": "https://liao.bot/email-api",
+      "allocatePath": "/get-email",
+      "firstEmailPath": "/first-email"
+    },
+    "codeRegex": "\\b(\\d{6})\\b",
+    "pollMs": 3000,
+    "pollTimeoutMs": 120000
+  }
+}
+```
+
+用到的两个接口（均为 `GET`）：
+
+| 步骤 | 请求 | 说明 |
+|---|---|---|
+| 分配邮箱 | `GET https://liao.bot/email-api/get-email?domain=bwen.net` | 返回一个可用的 `@bwen.net` 地址，作为本次注册用的邮箱 |
+| 查信取码 | `GET https://liao.bot/email-api/first-email?femail=<allocated>` | 以上一步分配到的地址为 `femail`，轮询拿最新一封邮件，再用 `codeRegex` 抽取 6 位验证码 |
+
+- `<allocated>` 就是「分配邮箱」返回的完整地址。
+- `pollMs` 轮询间隔、`pollTimeoutMs` 总超时（毫秒），超时抛 `MAILBOX_TIMEOUT`。
+- `baseUrl` / `allocatePath` / `firstEmailPath` 一般无需改动；改自建代理时才需覆盖。
+
 ### 邮箱：IMAP
 
-自有域名 + IMAP 收件箱（catch-all）是最推荐的组合。把 `email.provider` 设为 `"imap"`，并填 `email.imap`：
+如果不用默认的 liao.bot，自有域名 + IMAP 收件箱（catch-all）是最稳妥的自建组合。把 `email.provider` 设为 `"imap"`，并填 `email.imap`：
 
 ```json
 {
@@ -147,6 +199,7 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 | `AUTO_REG_IMAP_PASSWORD` / `IMAP_PASSWORD` | `email.imap.password` |
 | `AUTO_REG_TEMPMAIL_PIN` | `email.receivingPin` |
 | `AUTO_REG_MANUAL_CODE` | manual provider 的验证码 |
+| `AUTO_REG_VAULT_PASSWORD` | 账号库加密口令（见 [账号库加密](#账号库加密)） |
 
 ## 命令行
 
@@ -169,10 +222,26 @@ auto-reg register [options]
 
 ## 输出与安全
 
-- 账号写入 `output.accountsPath` 指向的 **JSON 数组**文件，采用 **append**：读出现有数组 → 追加 → 写临时文件 → `rename` 覆盖，保证是**原子写**，中途崩溃不会留下半截文件。
-- 该文件是本地账号库，会包含 **密码与 session token**（明文）。文件以 `0600` 权限创建；请自行妥善保管，并加入 `.gitignore`，**切勿提交或上传**。
+- 账号写入 `output.accountsPath` 指向的文件，采用 **append**：读出现有数组 → 追加 → 写临时文件 → `rename` 覆盖，保证是**原子写**，中途崩溃不会留下半截文件。
+- 该文件是本地账号库，会包含 **密码与 session token**。文件以 `0600` 权限创建；请自行妥善保管，并加入 `.gitignore`，**切勿提交或上传**。
 - CLI **只在控制台打印 email 与 ok/stage**；密码、验证码、token 只落盘、绝不打印。进度行只显示阶段名（`stage`），不回显引擎的自由文本消息，以免意外泄露。
 - **绝不要把 session token 发给任何第三方服务。**
+
+### 账号库加密
+
+账号库**默认加密落盘**：`output.encrypt` 默认为 `true`，采用 **AES-256-GCM**，密钥由口令经 **scrypt** 派生（每次写入用随机 salt / IV，落盘为一个自描述的 envelope）。口令通过环境变量 `AUTO_REG_VAULT_PASSWORD` 注入，**绝不写进配置文件**。
+
+因此**只要加密开着（默认），就必须先设置 `AUTO_REG_VAULT_PASSWORD` 再运行**：
+
+```bash
+export AUTO_REG_VAULT_PASSWORD='一段足够强的口令'
+npm run register -- --config config.local.json
+```
+
+- 加密开启却没有口令会直接报 `output.encrypt is enabled but no vault password is set`。
+- **dry-run 同样需要**：dry-run 也会真实写入 sink，所以在默认加密下 **dry-run 也必须（至少强烈建议）设置 `AUTO_REG_VAULT_PASSWORD`**，否则会在校验阶段就报错。
+- 加密后的账号库无法直接用文本编辑器查看，需用同一口令解密（GCM 校验：口令错或文件被篡改都会解密失败）；**口令丢失等于账号库不可恢复，请务必备份口令**。
+- 如需明文落盘，把 `output.encrypt` 显式设为 `false`（不推荐）。
 
 ## 编程式 API
 
@@ -199,7 +268,7 @@ console.log(`${ok}/${results.length} succeeded`);
 - **选择器易失效**：注册页的 DOM / WorkOS next-action / Turnstile 会频繁变化，`selectors` 与 `codeRegex` 必须可配置并随时调整。
 - **人机验证是断点**：真实的 Turnstile 挑战、以及手机 / radar 验证是全自动流程的两处断点；本包把它们当作硬失败 + 需人工介入，不做「假点击」之类的对抗。
 - **临时邮箱易被拦**：自有 catch-all 域名 + IMAP 是目前更现实的前提。
-- **凭据即风险**：落盘文件含明文凭据，泄露等于账号泄露。
+- **凭据即风险**：落盘文件含密码与 session token，泄露等于账号泄露；建议开启[账号库加密](#账号库加密)（`output.encrypt` + `AUTO_REG_VAULT_PASSWORD`），并妥善保管口令。
 
 ## 不做机器码
 

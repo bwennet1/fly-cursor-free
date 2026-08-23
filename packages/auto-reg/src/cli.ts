@@ -4,9 +4,9 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { loadConfig } from "./config.ts";
+import { loadConfig, resolveVaultPassword } from "./config.ts";
 import { runRegister } from "./pipeline.ts";
-import type { AutoRegConfig, PipelineEvent, RegisterResult } from "./types.js";
+import type { AutoRegConfig, OutputConfig, PipelineEvent, RegisterResult } from "./types.js";
 
 interface CliArgs {
     command?: string;
@@ -74,12 +74,23 @@ async function main(argv: string[]): Promise<void> {
 
     config = applyOverrides(config, args);
 
+    // Fail fast when the vault passphrase is missing (applies to --dry-run
+    // too, since dry runs persist results). The passphrase is only checked
+    // here — it is never printed and never passed through stdout.
+    try {
+        resolveVaultPassword(config);
+    } catch (err) {
+        console.error(`auto-reg: ${errMessage(err)}`);
+        process.exitCode = 1;
+        return;
+    }
+
     console.log(
         `auto-reg register  count=${config.count}  dry-run=${config.dryRun}  headed=${config.headed}`,
     );
 
     const results = await runRegister(config, onEvent);
-    printSummary(results, config.output.accountsPath);
+    printSummary(results, config.output);
 
     const succeeded = results.filter((r) => r.ok).length;
     if (results.length > 0 && succeeded === 0) {
@@ -96,7 +107,11 @@ function onEvent(e: PipelineEvent): void {
     process.stderr.write(`  · ${e.stage}\n`);
 }
 
-function printSummary(results: RegisterResult[], accountsPath: string): void {
+/**
+ * Per-account lines only ever echo the email, status and stage — never the
+ * password, session token or vault passphrase, regardless of encryption mode.
+ */
+function printSummary(results: RegisterResult[], output: OutputConfig): void {
     const succeeded = results.filter((r) => r.ok).length;
     console.log("");
     for (const r of results) {
@@ -107,7 +122,11 @@ function printSummary(results: RegisterResult[], accountsPath: string): void {
     console.log("");
     console.log(`${succeeded}/${results.length} succeeded`);
     if (succeeded > 0) {
-        console.log(`accounts written to ${accountsPath}`);
+        console.log(
+            output.encrypt
+                ? `已写入加密账号库: ${output.accountsPath}`
+                : `accounts written to ${output.accountsPath}`,
+        );
     }
 }
 

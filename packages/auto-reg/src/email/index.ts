@@ -1,6 +1,7 @@
 import { AutoRegError, ErrorCodes } from "../errors.ts";
 import type { AutoRegConfig, MailboxProvider } from "../types.ts";
 import { ImapMailbox } from "./imap.ts";
+import { LiaoBotMailbox } from "./liao-bot.ts";
 import { ManualMailbox } from "./manual.ts";
 import { TempMailPlusMailbox } from "./tempmail-plus.ts";
 
@@ -14,6 +15,8 @@ export function createMailbox(config: AutoRegConfig): MailboxProvider {
             return new ImapMailbox(email);
         case "manual":
             return new ManualMailbox();
+        case "liao_bot":
+            return new LiaoBotMailbox(email);
         default:
             // Config files are parsed at runtime, so guard against unknown values.
             throw new AutoRegError(
@@ -30,3 +33,5 @@ export type { FetchLike, FetchResponseLike, TempMailPlusOptions } from "./tempma
 export { ImapMailbox, IMAP_PASSWORD_ENVS } from "./imap.ts";
 export type { ImapConnectFn, ImapMailboxOptions, ImapSocket } from "./imap.ts";
 export { ManualMailbox, MANUAL_CODE_ENV } from "./manual.ts";
+export { LiaoBotMailbox, LIAO_BOT_DEFAULTS, MAILBOX_ALLOCATE_ERROR } from "./liao-bot.ts";
+export type { LiaoBotOptions } from "./liao-bot.ts";

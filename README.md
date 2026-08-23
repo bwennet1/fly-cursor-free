@@ -106,14 +106,26 @@ npm run auto-gui:setup && npm run auto-gui
 
 ## 本地自动 REG
 
-`packages/auto-reg` 是本仓库**自研的 clean-room 实现**（MIT，TypeScript，Node 22+ 以 `--experimental-strip-types` 直接运行），不是 `vendor/` 里收录的闭源 / CC BY-NC-ND（禁止演绎）项目，未复制其任何代码。快速验证（均不会真正注册）：
+`packages/auto-reg` 是本仓库**自研的 clean-room 实现**（MIT，TypeScript，Node 22+ 以 `--experimental-strip-types` 直接运行），不是 `vendor/` 里收录的闭源 / CC BY-NC-ND（禁止演绎）项目，未复制其任何代码。浏览器执行引擎基于 **Playwright**（已声明为本包依赖），先安装依赖并下载 Chromium：
+
+```bash
+npm --prefix packages/auto-reg install
+npx --prefix packages/auto-reg playwright install chromium
+```
+
+快速验证（均不会真正注册；账号库默认加密，dry-run 也会写库，故需先设口令）：
 
 ```bash
 cd packages/auto-reg && npm test
+export AUTO_REG_VAULT_PASSWORD='一段强口令'
 cd packages/auto-reg && node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json
 ```
 
-正式使用：复制 `examples/config.example.json` 为本地配置 → 填入你的域名与收件邮箱 → 去掉 `--dry-run` 并指向本地配置运行。
+收码默认走 **liao.bot 邮件 API + `bwen.net` 域名**：先 `GET https://liao.bot/email-api/get-email?domain=bwen.net` 分配一个 `@bwen.net` 地址，再 `GET https://liao.bot/email-api/first-email?femail=<allocated>` 轮询查信取验证码（也可改用自有域名 + IMAP）。
+
+账号库**默认加密**（`output.encrypt` 默认 `true`，AES-256-GCM，口令经 scrypt 派生），口令用环境变量 `AUTO_REG_VAULT_PASSWORD` 注入、**绝不写进配置**。**register 前先 `export AUTO_REG_VAULT_PASSWORD=...`；dry-run 同样需要**（它也写账号库，缺口令会在校验阶段报错）。
+
+正式使用：复制 `examples/config.example.json` 为本地配置 → 确认域名 / liao.bot 配置（或换成你自己的域名与收件邮箱）→ 设置 `AUTO_REG_VAULT_PASSWORD` → 去掉 `--dry-run` 并指向本地配置运行。
 
 注意边界：遇到人机验证需人工在浏览器窗口（headed）手动完成；该 CLI 不做机器码重置；因公开仓不含 Electron 主进程，应用内「注册」页签（`src/renderer/src/components/AutoRegPanel.vue`）只提供命令说明，不能一键运行。
 

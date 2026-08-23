@@ -99,8 +99,8 @@ vendor 浅克隆 + 本计划 + `research/SOURCE_MATRIX.md`。
 **M1 — 新仓库脚手架（已落地 `packages/auto-reg`）**  
 CLI、配置校验、身份生成、IMAP / tempmail.plus / manual 收码、dry-run 引擎、Playwright 浏览器引擎骨架（人机验证仅人工/超时）。
 
-**M2 — 闭环自动 REG（部分落地）**  
-dry-run 可闭环写入 JSON sink（原子写、0600）。真实浏览器路径：收码 → 填 OTP → 解析会话 cookie。账号库存明文 JSON（权限 0600），尚未做口令派生加密 / OS keychain。
+**M2 — 闭环自动 REG（加密已落地）**  
+dry-run 可闭环写入账号库 sink（原子写、0600）。真实浏览器路径：收码 → 填 OTP → 解析会话 cookie。**默认收码通道为 liao.bot 邮件 API + `bwen.net` 域名**（`get-email` 分配地址、`first-email` 轮询查信）。**账号库加密已落地且默认开启**（`output.encrypt` 默认 `true`）：账号库以 AES-256-GCM 落盘，密钥由环境变量 `AUTO_REG_VAULT_PASSWORD` 口令经 scrypt 派生（文件权限仍为 0600）；加密开启时缺口令会直接报错，dry-run 亦然。OS keychain 尚未做。
 
 **M3 — 接 FlyCursor**  
 只通过稳定 IPC / 导入 JSON，不把 Python 塞进被 gitignore 的 `src/main`。渲染层已有 Auto GUI 页签，可再加「导入 auto-reg 结果」。

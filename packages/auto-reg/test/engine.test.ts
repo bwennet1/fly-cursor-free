@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import { defaultConfig } from "../src/config.ts";
 import { BrowserEngine, DryRunEngine, createEngine } from "../src/engine/index.ts";
-import { AutoRegError, ErrorCodes } from "../src/errors.ts";
 import type { AutoRegConfig, Identity, PipelineEvent } from "../src/types.js";
 
 function testIdentity(): Identity {
@@ -63,21 +62,15 @@ test("dry-run register returns a synthetic token and the canned code", async () 
     }
 });
 
-test("browser register fails with an ENGINE error when Playwright is missing (no browser launched)", async () => {
-    const engine = new BrowserEngine();
+test("playwright is a declared dependency: loading it never hits MODULE_NOT_FOUND (no browser launched)", async () => {
+    // Historically playwright was an optional runtime module and register()
+    // rejected with an ENGINE error when it was absent. It is now a regular
+    // dependency of this package, so both constructing the browser engine and
+    // resolving the playwright module must succeed. This only imports the
+    // library — no Chromium binary is required and no browser is launched.
+    const engine = createEngine(testConfig({ dryRun: false }));
+    assert.ok(engine instanceof BrowserEngine);
 
-    await assert.rejects(
-        engine.register({
-            identity: testIdentity(),
-            config: testConfig({ dryRun: false }),
-            waitForCode: neverCode,
-            onEvent: () => {},
-        }),
-        (error: unknown) => {
-            assert.ok(error instanceof AutoRegError);
-            assert.equal(error.code, ErrorCodes.ENGINE);
-            assert.match(error.message, /npx playwright install chromium/);
-            return true;
-        },
-    );
+    const playwright = await import("playwright");
+    assert.equal(typeof playwright.chromium.launch, "function");
 });

@@ -5,17 +5,12 @@
     "timeoutMs": 120000,
     "signupUrl": "https://authenticator.cursor.sh/sign-up",
     "email": {
-        "provider": "imap",
-        "domain": "example.com/mail.example.org",
-        "receivingEmail": "catchall@example.com",
-        "receivingPin": "",
-        "imap": {
-            "host": "imap.example.com",
-            "port": 993,
-            "secure": true,
-            "user": "catchall@example.com",
-            "password": "set-via-AUTO_REG_IMAP_PASSWORD",
-            "mailbox": "INBOX"
+        "provider": "liao_bot",
+        "domain": "bwen.net",
+        "liao": {
+            "baseUrl": "https://liao.bot/email-api",
+            "allocatePath": "/get-email",
+            "firstEmailPath": "/first-email"
         },
         "codeRegex": "\\b(\\d{6})\\b",
         "pollMs": 3000,
@@ -27,7 +22,8 @@
         "passwordLength": 16
     },
     "output": {
-        "accountsPath": "accounts.json"
+        "accountsPath": "accounts.json",
+        "encrypt": true
     },
     "selectors": {
         "firstName": "input[name=\"first_name\"]",
