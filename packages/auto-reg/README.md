@@ -43,7 +43,7 @@ npm run auto-reg:install
 - 真实注册（非 dry-run）时才需要上面的 Playwright / Chromium 与可访问的邮箱。**dry-run 完全离线，不需要安装 Chromium 也能跑通流水线形状。**
 - **turnstilePatch（默认开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的 MV3 扩展（`resources/turnstilePatch`）。只修补 CDP 下 `screenX/screenY` 指纹（getter：`clientX + offset`），**不是验证码求解器**。
   - **有头（真实注册的默认路径）**：用 `--load-extension` 加载扩展（并去掉 Playwright 默认的 `--disable-extensions`），等同 vendor 里 DrissionPage `add_extension`。**真实注册（非 dry-run）默认自动 headed**，无需显式传 `--headed`。
-  - **无头（仅 `--headless` 强制时）**：Playwright 走 `chrome-headless-shell`，**无法加载 MV3 扩展**；只会 `addInitScript` 注入 `script.js`。Turnstile 在无头下没有窗口可供人工点选，会在 `challenge` 阶段以 `CHALLENGE_REQUIRED` 失败——这是之前卡住的根因，不是「补丁没拷进来」。
+  - **无头（仅 `--headless` 强制时）**：引擎启动前会自动设置 `PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL=0`，强制使用完整 Chromium——`chrome-headless-shell` **无法加载 MV3 扩展**，正是之前真实无头运行卡死的根因（不是「补丁没拷进来」）。即便换成完整 Chromium，无头下也不会加载扩展，只用 `addInitScript` 注入 `script.js`；且 Turnstile 在无头下没有窗口可供人工点选，会在 `challenge` 阶段以 `CHALLENGE_REQUIRED` 失败。
 
 ## 快速开始（dry-run）
 
@@ -214,7 +214,7 @@ auto-reg register [options]
 选项：
   --config <path>   配置文件路径。缺省时用 examples/config.example.json（包根目录或当前目录）。
   --count <n>       本次注册数量（覆盖配置）。
-  --dry-run         离线演练：不启动真实浏览器、不改动任何状态。
+  --dry-run         离线演练：不启动真实浏览器、不联网，但仍会写账号文件。
                     未设 AUTO_REG_VAULT_PASSWORD 时本次明文落盘并警告。
   --headed          浏览器有头（可见）运行。
   --headless        强制无头。真实注册默认 headed，以便加载扩展并人工过人机。
@@ -231,6 +231,7 @@ auto-reg register [options]
 
 - 账号写入 `output.accountsPath` 指向的文件，采用 **append**：读出现有数组 → 追加 → 写临时文件 → `rename` 覆盖，保证是**原子写**，中途崩溃不会留下半截文件。
 - 该文件是本地账号库，会包含 **密码与 session token**。文件以 `0600` 权限创建；请自行妥善保管，并加入 `.gitignore`，**切勿提交或上传**。
+- **失败也留痕（`output.persistFailures`，默认 `true`）**：失败的注册尝试同样会追加进账号库，便于事后排查；写入前会抹掉 password，且不含 sessionToken / 验证码，只保留 email、stage 与错误信息。设为 `false` 则只写成功记录。
 - CLI **只在控制台打印 email 与 ok/stage**；密码、验证码、token 只落盘、绝不打印。进度行打印 `· <stage>  <经脱敏的消息>`（JWT / password= / 长 token / 独立 6 位码会被替换为 `[redacted]`）。
 - **绝不要把 session token 发给任何第三方服务。**
 
