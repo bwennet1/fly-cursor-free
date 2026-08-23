@@ -205,6 +205,7 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 | `AUTO_REG_TEMPMAIL_PIN` | `email.receivingPin` |
 | `AUTO_REG_MANUAL_CODE` | manual provider 的验证码 |
 | `AUTO_REG_VAULT_PASSWORD` | 账号库加密口令（见 [账号库加密](#账号库加密)） |
+| `AUTO_REG_CHROME_PATH` | Chrome 可执行文件路径。默认优先用系统 Google Chrome（Playwright channel `chrome`），找不到再看此变量与 `/usr/bin/google-chrome`，最后才退回 Playwright 自带 Chromium（headed 下已知会崩溃） |
 
 ## 命令行
 

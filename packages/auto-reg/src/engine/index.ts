@@ -3,6 +3,15 @@ import { createBrowserEngine } from "./browser.ts";
 import { createDryRunEngine } from "./dry-run.ts";
 
 export { BrowserEngine, createBrowserEngine } from "./browser.ts";
+export {
+    CHROME_PATH_ENV,
+    DEFAULT_SYSTEM_CHROME,
+    browserCrashError,
+    chromeChannelCandidates,
+    isBrowserClosedError,
+    planBrowserBinary,
+} from "./chrome-launch.ts";
+export type { ChromeLaunchPlan, ChromeLaunchSource, PlanBrowserBinaryOptions } from "./chrome-launch.ts";
 export { resolveTurnstilePatchDir, resolveTurnstilePatchScript } from "./turnstile-patch.ts";
 export { DryRunEngine, createDryRunEngine } from "./dry-run.ts";
 

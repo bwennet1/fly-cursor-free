@@ -13,6 +13,12 @@ import type {
     RegisterEngine,
     RegisterStage,
 } from "../types.js";
+import {
+    browserCrashError,
+    isBrowserClosedError,
+    planBrowserBinary,
+    type ChromeLaunchPlan,
+} from "./chrome-launch.ts";
 import { resolveTurnstilePatchDir, resolveTurnstilePatchScript } from "./turnstile-patch.ts";
 
 /**
@@ -129,6 +135,8 @@ interface OpenedContext {
     context: BrowserContext;
     /** Temp profile dir used by launchPersistentContext; removed in close(). */
     userDataDir: string;
+    /** Which browser binary was launched — named in crash diagnostics. */
+    binaryPlan: ChromeLaunchPlan;
 }
 
 /**
@@ -168,9 +176,16 @@ async function openContext(
 
     // docs/问题.md #1: Playwright's headless default is chrome-headless-shell,
     // which cannot load MV3 extensions and is where the real headless run
-    // stalled. Force full Chromium before launching.
+    // stalled. Force full Chromium before launching. (Only relevant for the
+    // bundled-Chromium fallback; channel/executablePath launches ignore it.)
     disableHeadlessShell();
     emit("open_signup", `set ${HEADLESS_SHELL_ENV}=0 (launch full Chromium, not chrome-headless-shell)`);
+
+    // Prefer installed Google Chrome over the bundled Chromium: the bundled
+    // binary is what crashed right after the form was filled in headed runs,
+    // while system Chrome on the same DISPLAY stayed up.
+    const binaryPlan = planBrowserBinary();
+    emit("open_signup", binaryPlan.description);
 
     const userDataDir = await mkdtemp(path.join(tmpdir(), "auto-reg-chromium-"));
     const plan = planChromiumLaunch(headed, patchDir);
@@ -192,6 +207,8 @@ async function openContext(
     try {
         const context = await playwright.chromium.launchPersistentContext(userDataDir, {
             headless: !headed,
+            channel: binaryPlan.channel,
+            executablePath: binaryPlan.executablePath,
             args: plan.args,
             // In headed mode this strips the default --disable-extensions so the
             // --load-extension flag above is not a no-op. In headless it is
@@ -205,7 +222,7 @@ async function openContext(
             emit("open_signup", "injected turnstilePatch script.js via addInitScript");
         }
 
-        return { context, userDataDir };
+        return { context, userDataDir, binaryPlan };
     } catch (error) {
         await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
         const message = error instanceof Error ? error.message : String(error);
@@ -222,7 +239,10 @@ async function openContext(
 
 async function closeOpened(opened: OpenedContext): Promise<void> {
     try {
-        await opened.context.close();
+        // Swallow close() failures: when the browser already crashed, close()
+        // rejects with TargetClosedError, and an error thrown from this
+        // finally-path would mask the real crash error from register().
+        await opened.context.close().catch(() => undefined);
     } finally {
         await rm(opened.userDataDir, { recursive: true, force: true }).catch(() => undefined);
     }
@@ -393,7 +413,11 @@ export class BrowserEngine implements RegisterEngine {
         const { identity, config, waitForCode, onEvent } = input;
         const { selectors } = config;
         const timeout = config.timeoutMs;
+        // Tracks the most recent stage so a mid-run browser crash can be
+        // reported against the step that was executing when Chromium died.
+        let currentStage: RegisterStage = "open_signup";
         const emit = (stage: RegisterStage, message: string): void => {
+            currentStage = stage;
             onEvent({ stage, message, at: new Date().toISOString() });
         };
 
@@ -440,6 +464,16 @@ export class BrowserEngine implements RegisterEngine {
             const sessionToken = sessionCookie ? parseSessionCookie(sessionCookie.value) : undefined;
 
             return { sessionToken, code };
+        } catch (error) {
+            if (error instanceof AutoRegError) throw error;
+            // The bundled-Chromium crash surfaces as TargetClosedError /
+            // "browser has been closed" on the next fill/click — the action
+            // rejects immediately (no hang). Translate it into an actionable
+            // ENGINE error instead of a bare Playwright stack.
+            if (isBrowserClosedError(error)) {
+                throw browserCrashError(currentStage, opened.binaryPlan, error);
+            }
+            throw error;
         } finally {
             await closeOpened(opened);
         }
