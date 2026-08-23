@@ -40,6 +40,20 @@ test("defaultConfig persists failures by default", () => {
     assert.equal(config.output.persistFailures, true);
 });
 
+test("defaultConfig disables turnstilePatch by default (CF flags the loaded extension)", () => {
+    const config = defaultConfig();
+    assert.equal(config.turnstilePatch, false);
+});
+
+test("turnstilePatch can be opted back in from the config file", async () => {
+    const path = await writeConfigFile({
+        email: { domain: "example.com" },
+        turnstilePatch: true,
+    });
+    const config = await loadConfig(path, NO_ENV);
+    assert.equal(config.turnstilePatch, true);
+});
+
 test("output.persistFailures can be disabled from the config file", async () => {
     const path = await writeConfigFile({
         email: { domain: "example.com" },

@@ -20,7 +20,11 @@ export function defaultConfig(): AutoRegConfig {
         count: 1,
         dryRun: false,
         headed: false,
-        turnstilePatch: true,
+        // Opt-in. When on we inject the CDP screenX/Y patch via addInitScript,
+        // but we never --load-extension the MV3 build: Cloudflare's interstitial
+        // labels a loaded extension an "Incompatible browser extension" and
+        // blocks the sign-up form (docs/问题.md).
+        turnstilePatch: false,
         timeoutMs: 120_000,
         signupUrl: DEFAULT_SIGNUP_URL,
         email: {
