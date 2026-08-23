@@ -21,6 +21,7 @@ Clean-room（净室自研）的 Cursor 批量注册编排器。它把「身份�
 - [输出与安全](#输出与安全)
   - [账号库加密](#账号库加密)
 - [编程式 API](#编程式-api)
+- [Cloudflare 与浏览器稳定性（issue 4 / 5）](#cloudflare-与浏览器稳定性issue-4--5)
 - [风险（务必先读）](#风险务必先读)
 - [不做机器码](#不做机器码)
 
@@ -270,11 +271,22 @@ console.log(`${ok}/${results.length} succeeded`);
 
 第三个参数 `deps` 用于注入 `createIdentity` / `createMailbox` / `createEngine` / `createSink`，测试里据此完全离线打桩（见 `test/pipeline.test.ts`）。
 
+## Cloudflare 与浏览器稳定性（issue 4 / 5）
+
+真实注册会遇到两类与浏览器 / Cloudflare 相关的现实问题（高层说明，详见仓库根目录 `docs/问题.md` 第 4、5 节）。这里明确本包的**预期产品行为**：
+
+- **不做任何自动绕过 Cloudflare / Turnstile**：Cloudflare 拦截页与 Turnstile 挑战一律视为硬失败 + 需人工介入。本包不做「假点击」之类的对抗，**也不实现验证码求解**——这是刻意的边界，不是 TODO。
+- **快速失败，不干等**：检测到浏览器崩溃、Cloudflare「Incompatible browser extension」拦截、或持续的「Just a moment」/ 429 时，直接以清晰错误结束本次尝试并记入结果，不做长时间无输出的等待。
+- **优先使用系统 Chrome（issue 4）**：有头运行时 Playwright 打包自带的 Chromium 在部分环境不稳定（窗口崩溃 / 闪退）。预期优先通过 Playwright 的 `channel: "chrome"` 使用系统已安装的 Google Chrome，系统无 Chrome 时再回退到自带 Chromium 并给出提示。
+- **扩展按需开启 opt-in（issue 5）**：用 `--load-extension` 加载 turnstilePatch 本身可能触发 Cloudflare「Incompatible browser extension」拦截。目标行为是把 turnstilePatch 扩展改为**默认关闭、需显式开启**，仅在你明确了解取舍时启用（当前默认值参见[配置](#配置)表，正朝 opt-in 收敛）。
+- **429 表示需要等待（issue 5）**：同一来源被高频访问后，上游可能返回 HTTP 429 并卡在「Just a moment」。429 是限流信号，应退避 / 稍后再试，而不是继续高频重试。
+
 ## 风险（务必先读）
 
 - **违反服务条款**：批量注册、绕过试用通常违反 Cursor 的服务条款，账号可能被封。请仅用于你自己拥有的域名与账号，风险自负。
 - **选择器易失效**：注册页的 DOM / WorkOS next-action / Turnstile 会频繁变化，`selectors` 与 `codeRegex` 必须可配置并随时调整。
 - **人机验证是断点**：真实的 Turnstile 挑战、以及手机 / radar 验证是全自动流程的两处断点；本包把它们当作硬失败 + 需人工介入，不做「假点击」之类的对抗。
+- **Cloudflare / 浏览器现实问题**：有头自带 Chromium 可能崩溃、加载扩展可能触发「Incompatible browser extension」、高频后可能 429 卡在「Just a moment」。预期行为是快速失败、优先系统 Chrome、扩展按需开启、429 退避等待，详见 [Cloudflare 与浏览器稳定性（issue 4 / 5）](#cloudflare-与浏览器稳定性issue-4--5)。
 - **临时邮箱易被拦**：自有 catch-all 域名 + IMAP 是目前更现实的前提。
 - **凭据即风险**：落盘文件含密码与 session token，泄露等于账号泄露；建议开启[账号库加密](#账号库加密)（`output.encrypt` + `AUTO_REG_VAULT_PASSWORD`），并妥善保管口令。
 
