@@ -26,7 +26,8 @@ type PlaywrightModule = typeof import("playwright");
 const MISSING_BROWSER_PATTERN = /executable doesn't exist|playwright install/i;
 
 /** Default text/markers that identify an anti-bot challenge page. */
-const DEFAULT_CHALLENGE_PATTERN = /turnstile|captcha|hcaptcha|recaptcha|cf-chl|challenge|are you (a )?human/i;
+const DEFAULT_CHALLENGE_PATTERN =
+    /turnstile|captcha|hcaptcha|recaptcha|cf-chl|challenge|are you (a )?human|incompatible browser extension/i;
 
 /** Markers that identify a phone / "radar" risk verification step. */
 const PHONE_PATTERN = /phone|radar/i;
@@ -77,24 +78,24 @@ export interface ChromiumLaunchPlan {
 }
 
 /**
- * Decides the Chromium launch flags for a run — the crux of docs/问题.md #1–#2.
+ * Decides the Chromium launch flags for a run.
  *
- * - **headed + patch dir**: pass `--disable-extensions-except` and
- *   `--load-extension` for the MV3 turnstilePatch, and strip Playwright's
- *   default `--disable-extensions` via `ignoreDefaultArgs` (otherwise
- *   `--load-extension` is silently a no-op).
- * - **headless (or no patch dir)**: never pass `--load-extension`. Headless
- *   Chromium keeps `--disable-extensions`, so loading an MV3 extension there
- *   only produces the fighting flags recorded in 问题.md. The screenX/Y patch
- *   is still injected via `addInitScript` by the caller.
+ * Default: never pass `--load-extension`. Cloudflare Turnstile reports
+ * "Incompatible browser extension" when the packaged MV3 is loaded that way.
+ * The CDP screenX/Y fix is injected via `addInitScript` instead.
+ *
+ * `--load-extension` is used only when `loadAsExtension` is explicitly true
+ * (headed + patch dir). That path is opt-in legacy; it is what triggered the
+ * Cloudflare banner.
  *
  * Pure and synchronous so tests can assert the flags without launching Chromium.
  */
 export function planChromiumLaunch(
     headed: boolean,
     patchDir: string | undefined,
+    loadAsExtension: boolean = false,
 ): ChromiumLaunchPlan {
-    const loadExtension = Boolean(patchDir && headed);
+    const loadExtension = Boolean(patchDir && headed && loadAsExtension);
     const args: string[] = [];
     if (loadExtension && patchDir) {
         args.push(`--disable-extensions-except=${patchDir}`);
@@ -138,16 +139,12 @@ interface OpenedContext {
  * Cursor-Register / TheFalloutOf76 / Xewdy444:
  *
  * - Forces full Chromium (not `chrome-headless-shell`) via
- *   {@link disableHeadlessShell} so headless launches match the extension
- *   policy below (docs/问题.md #1).
- * - **headed**: load the MV3 extension via `--load-extension` (same idea as
- *   DrissionPage `add_extension`), and strip Playwright's default
- *   `--disable-extensions` so the flag is not a no-op.
- * - **headless**: skip `--load-extension` entirely — headless Chromium keeps
- *   `--disable-extensions`, so the two flags would fight (docs/问题.md #2). Only
- *   `script.js` is injected via `addInitScript`. That still does not make
- *   Turnstile reliably pass headless — expect CHALLENGE_REQUIRED or use
- *   `--headed`.
+ *   {@link disableHeadlessShell}.
+ * - **Default**: do not pass `--load-extension`. Cloudflare flags that MV3 as
+ *   "Incompatible browser extension". Only `script.js` is injected via
+ *   `addInitScript`.
+ * - **`turnstileExtension` opt-in + headed**: `--load-extension` (legacy
+ *   vendor-style). Expect Cloudflare to reject it.
  */
 async function openContext(
     playwright: PlaywrightModule,
@@ -173,19 +170,18 @@ async function openContext(
     emit("open_signup", `set ${HEADLESS_SHELL_ENV}=0 (launch full Chromium, not chrome-headless-shell)`);
 
     const userDataDir = await mkdtemp(path.join(tmpdir(), "auto-reg-chromium-"));
-    const plan = planChromiumLaunch(headed, patchDir);
+    const plan = planChromiumLaunch(headed, patchDir, config.turnstileExtension === true);
     if (plan.loadExtension && patchDir) {
         emit(
             "open_signup",
-            `headed: loading turnstilePatch MV3 extension from ${patchDir} ` +
-                "(--load-extension + --disable-extensions-except, with ignoreDefaultArgs:['--disable-extensions'])",
+            `headed + turnstileExtension: loading MV3 from ${patchDir} via --load-extension ` +
+                "(Cloudflare may report Incompatible browser extension)",
         );
-    } else if (patchDir && !headed) {
+    } else if (patchEnabled) {
         emit(
             "open_signup",
-            "headless: NOT passing --load-extension — headless Chromium keeps --disable-extensions " +
-                "so the two flags fight (docs/问题.md #2); injecting script.js via addInitScript only " +
-                "— Turnstile usually still needs --headed",
+            "not passing --load-extension (Cloudflare flags the turnstilePatch MV3); " +
+                "script.js is injected via addInitScript only",
         );
     }
 
@@ -273,6 +269,20 @@ export async function handleChallenge(
 ): Promise<void> {
     if (!(await looksLikeChallenge(page, config.selectors.challengeHint))) return;
 
+    let html = "";
+    try {
+        html = await page.content();
+    } catch {
+        html = "";
+    }
+    if (/incompatible browser extension/i.test(html)) {
+        throw new AutoRegError(
+            "challenge",
+            ErrorCodes.CHALLENGE_REQUIRED,
+            "Cloudflare reported Incompatible browser extension — the turnstilePatch MV3 was loaded via --load-extension; leave turnstileExtension false (addInitScript only)",
+        );
+    }
+
     emit("challenge", "anti-bot challenge detected (turnstile / captcha / challenge)");
 
     if (!config.headed) {
@@ -280,9 +290,9 @@ export async function handleChallenge(
             "challenge",
             ErrorCodes.CHALLENGE_REQUIRED,
             "a bot challenge was detected under headless Chromium; " +
-                "Playwright's chrome-headless-shell cannot load the turnstilePatch MV3 extension, " +
-                "and Turnstile rarely passes without a real display — re-run with --headed " +
-                "(turnstilePatch is a CDP screenX/Y fingerprint fix, not a captcha solver)",
+                "Turnstile rarely passes without a real display — re-run with --headed " +
+                "(turnstilePatch is a CDP screenX/Y fix injected via addInitScript, not a solver; " +
+                "do not enable turnstileExtension — Cloudflare flags that MV3)",
         );
     }
 

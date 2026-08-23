@@ -188,7 +188,9 @@
 
                     <p class="license-tip">
                         ⚠️ 边界说明：遇到人机验证（Turnstile
-                        等）时<b>需要人工在弹出的浏览器窗口中手动完成</b>（真实注册默认 headed，不做自动过验证）；该 CLI
+                        等）时<b>需要人工在弹出的浏览器窗口中手动完成</b>（真实注册默认 headed，不做自动过验证；<b>不要</b>
+                        用 <code>--load-extension</code> 挂 turnstilePatch，Cloudflare 会报 Incompatible browser
+                        extension）；该 CLI
                         <b>不做机器码重置</b>，只负责注册与账号落盘；账号库含密码与 session token，默认加密后需用同一
                         <code>AUTO_REG_VAULT_PASSWORD</code> 口令解密，口令丢失不可恢复，请妥善备份。
                     </p>

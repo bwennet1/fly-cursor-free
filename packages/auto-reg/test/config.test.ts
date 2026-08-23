@@ -35,6 +35,12 @@ test("defaultConfig has the documented signup URL and a manual provider", () => 
     assert.equal(config.count, 1);
 });
 
+test("defaultConfig does not load the turnstilePatch MV3 as an extension", () => {
+    const config = defaultConfig();
+    assert.equal(config.turnstilePatch, true);
+    assert.equal(config.turnstileExtension, false);
+});
+
 test("defaultConfig persists failures by default", () => {
     const config = defaultConfig();
     assert.equal(config.output.persistFailures, true);

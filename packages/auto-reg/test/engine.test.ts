@@ -123,12 +123,26 @@ test("playwright is a declared dependency: loading it never hits MODULE_NOT_FOUN
     assert.equal(typeof playwright.chromium.launch, "function");
 });
 
-test("planChromiumLaunch (headed + patch dir) loads the extension and strips --disable-extensions", () => {
+test("planChromiumLaunch (headed + patch dir) does NOT load the MV3 by default (Cloudflare flags it)", () => {
     const plan = planChromiumLaunch(true, "/tmp/turnstilePatch");
+    assert.equal(plan.loadExtension, false);
+    assert.ok(!plan.args.some((arg) => arg.startsWith("--load-extension")));
+    assert.ok(!plan.args.some((arg) => arg.startsWith("--disable-extensions-except")));
+    assert.equal(plan.ignoreDefaultArgs, undefined);
+});
+
+test("planChromiumLaunch loads --load-extension only when explicitly opted in (headed + patch dir)", () => {
+    const plan = planChromiumLaunch(true, "/tmp/turnstilePatch", true);
     assert.equal(plan.loadExtension, true);
     assert.ok(plan.args.includes("--load-extension=/tmp/turnstilePatch"));
     assert.ok(plan.args.includes("--disable-extensions-except=/tmp/turnstilePatch"));
     assert.deepEqual(plan.ignoreDefaultArgs, ["--disable-extensions"]);
+});
+
+test("planChromiumLaunch (headless + opt-in) still never passes --load-extension", () => {
+    const plan = planChromiumLaunch(false, "/tmp/turnstilePatch", true);
+    assert.equal(plan.loadExtension, false);
+    assert.ok(!plan.args.some((arg) => arg.startsWith("--load-extension")));
 });
 
 test("planChromiumLaunch (headless + patch dir) never passes --load-extension (no fighting --disable-extensions)", () => {
@@ -160,6 +174,32 @@ test("looksLikeChallenge matches Turnstile markup and ignores benign pages", asy
     const benign = makeFakePage({ html: () => "<h1>Create your account</h1>" });
     assert.equal(await looksLikeChallenge(challenge.page, hint), true);
     assert.equal(await looksLikeChallenge(benign.page, hint), false);
+});
+
+test("looksLikeChallenge matches Cloudflare Incompatible browser extension", async () => {
+    const hint = defaultConfig().selectors.challengeHint;
+    const page = makeFakePage({ html: () => "<p>Incompatible browser extension</p>" });
+    assert.equal(await looksLikeChallenge(page.page, hint), true);
+});
+
+test("Incompatible browser extension fails immediately even when headed", async () => {
+    const handle = makeFakePage({ html: () => "<p>Incompatible browser extension</p>" });
+    const config = testConfig({ headed: true });
+    await assert.rejects(
+        () =>
+            clickContinue(
+                handle.page,
+                config.selectors.continueButton,
+                config.timeoutMs,
+                config,
+                () => {},
+            ),
+        (err: unknown) =>
+            err instanceof AutoRegError &&
+            err.code === ErrorCodes.CHALLENGE_REQUIRED &&
+            /Incompatible browser extension/i.test(err.message),
+    );
+    assert.equal(handle.clicks(), 0);
 });
 
 test("clickContinue does not dead-click when a challenge is already present (headless aborts fast)", async () => {

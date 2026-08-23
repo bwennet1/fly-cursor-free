@@ -3,6 +3,7 @@
     "dryRun": false,
     "headed": false,
     "turnstilePatch": true,
+    "turnstileExtension": false,
     "timeoutMs": 120000,
     "signupUrl": "https://authenticator.cursor.sh/sign-up",
     "email": {

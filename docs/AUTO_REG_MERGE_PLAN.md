@@ -127,4 +127,4 @@ dry-run 可闭环写入账号库 sink（原子写、0600）。真实浏览器路
 - **dry-run 时 vault 口令可选**：未设 `AUTO_REG_VAULT_PASSWORD` 则降级明文并告警；真实跑仍强制。
 - **真实注册默认 headed**：未显式指定 `--headed/--headless` 时自动提升为 headed。
 - **`output.persistFailures` 默认开启**：失败记录同样写入账号库，便于复盘。
-- **`turnstilePatch` 不是求解器**：只修 CDP screenX/screenY 指纹；人机验证仍走人工 / 超时降级。
+- **`turnstilePatch` 不是求解器**：只修 CDP screenX/screenY 指纹，默认 `addInitScript`，**不要** `--load-extension`（Cloudflare 会报 Incompatible browser extension）；人机验证仍走人工 / 超时降级。

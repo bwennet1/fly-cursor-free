@@ -166,7 +166,7 @@ export interface ResolvedOverrides {
  * Applies CLI overrides on top of the loaded config and resolves two runtime
  * safeguards:
  *   - A real registration (not --dry-run) defaults to headed so the browser
- *     can load the turnstilePatch extension and a human can clear challenges.
+ *     a human can clear challenges (do not load the turnstilePatch MV3).
  *     Pass --headless to force headless anyway.
  *   - A --dry-run without AUTO_REG_VAULT_PASSWORD does not hard-fail: encryption
  *     is turned off for this run (plaintext, no secrets written to the vault)
@@ -296,7 +296,7 @@ function printUsage(): void {
             "                    Without AUTO_REG_VAULT_PASSWORD a dry run writes plaintext.",
             "  --headed          Run the browser engine headed (visible) instead of headless.",
             "  --headless        Force headless. Real runs default to headed so the",
-            "                    turnstilePatch extension loads and a human can pass the challenge.",
+            "                    a human can pass the challenge. Do not load the turnstilePatch MV3.",
             "  -h, --help        Show this help.",
             "",
             "Registering accounts in bulk usually violates Cursor's Terms of Service.",

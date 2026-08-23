@@ -41,9 +41,10 @@ npm run auto-reg:install
 ```
 
 - 真实注册（非 dry-run）时才需要上面的 Playwright / Chromium 与可访问的邮箱。**dry-run 完全离线，不需要安装 Chromium 也能跑通流水线形状。**
-- **turnstilePatch（默认开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的 MV3 扩展（`resources/turnstilePatch`）。只修补 CDP 下 `screenX/screenY` 指纹（getter：`clientX + offset`），**不是验证码求解器**。
-  - **有头（真实注册的默认路径）**：用 `--load-extension` 加载扩展（并去掉 Playwright 默认的 `--disable-extensions`），等同 vendor 里 DrissionPage `add_extension`。**真实注册（非 dry-run）默认自动 headed**，无需显式传 `--headed`。
-  - **无头（仅 `--headless` 强制时）**：引擎启动前会自动设置 `PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL=0`，强制使用完整 Chromium——`chrome-headless-shell` **无法加载 MV3 扩展**，正是之前真实无头运行卡死的根因（不是「补丁没拷进来」）。即便换成完整 Chromium，无头下也不会加载扩展，只用 `addInitScript` 注入 `script.js`；且 Turnstile 在无头下没有窗口可供人工点选，会在 `challenge` 阶段以 `CHALLENGE_REQUIRED` 失败。
+- **turnstilePatch（默认开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的 `script.js`。只修补 CDP 下 `screenX/screenY` 指纹（getter：`clientX + offset`），**不是验证码求解器**。
+  - **默认只 `addInitScript` 注入 `script.js`，不传 `--load-extension`**。用 `--load-extension` 挂上该 MV3 时，Cloudflare Turnstile 会报 **Incompatible browser extension**。
+  - **`turnstileExtension`（默认 `false`）**：仅在显式设为 `true` 且 headed 时才 `--load-extension`（旧 vendor 行为，Cloudflare 会拦）。
+  - **真实注册默认 headed**，无需显式传 `--headed`。无头没有窗口可供人工点选，挑战阶段以 `CHALLENGE_REQUIRED` 失败。
 
 ## 快速开始（dry-run）
 
@@ -81,7 +82,8 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 | `count` | 注册数量（整数，`>= 1`） |
 | `dryRun` | `true` 走离线 dry-run 引擎；也可用 `--dry-run` 覆盖 |
 | `headed` | 浏览器是否有头（可见）。**真实注册默认自动 headed**；`--headed` / `--headless` 可覆盖 |
-| `turnstilePatch` | **默认 `true`**：加载 `resources/turnstilePatch`（CDP screenX/Y 补丁）。不是验证码求解器 |
+| `turnstilePatch` | **默认 `true`**：`addInitScript` 注入 `script.js`（CDP screenX/Y 补丁）。不是验证码求解器 |
+| `turnstileExtension` | **默认 `false`**：不要用 `--load-extension` 挂 MV3；Cloudflare 会报 Incompatible browser extension |
 | `timeoutMs` | 单步超时（毫秒，`> 0`） |
 | `signupUrl` | 注册页地址 |
 | `email` | 邮箱 / 收码配置，见下 |

@@ -15,6 +15,7 @@ What it does (and does not do):
   solver, captcha farm, or checkbox auto-clicker.
 
 Playwright note:
-  Chrome extensions do NOT load under Playwright's chrome-headless-shell
-  (headless:false / headed is required for --load-extension). In headless
-  mode auto-reg still injects script.js via addInitScript.
+  Do NOT pass --load-extension for this directory by default. Cloudflare
+  Turnstile reports "Incompatible browser extension" when the MV3 is loaded
+  that way. auto-reg injects script.js via addInitScript instead.
+  turnstileExtension=true is the opt-in legacy path (headed only).
