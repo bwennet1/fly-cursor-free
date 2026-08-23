@@ -5,8 +5,13 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { ENV_KEYS, loadConfig, resolveVaultPassword } from "./config.ts";
+import { checkNodeVersion } from "./node-version.ts";
 import { runRegister } from "./pipeline.ts";
 import type { AutoRegConfig, OutputConfig, PipelineEvent, RegisterResult } from "./types.js";
+
+// Re-exported so existing importers (tests, embedders) keep working after the
+// extraction to node-version.ts.
+export { MIN_NODE_MAJOR, checkNodeVersion } from "./node-version.ts";
 
 export interface CliArgs {
     command?: string;
@@ -18,9 +23,6 @@ export interface CliArgs {
     help: boolean;
     unknown: string[];
 }
-
-/** Minimum supported Node major version (matches package.json "engines"). */
-const MIN_NODE_MAJOR = 22;
 
 const DEFAULT_CONFIG_RELATIVE = path.join("examples", "config.example.json");
 
@@ -140,24 +142,6 @@ export function sanitizeMessage(message: string): string {
         .replace(/(password\s*[:=]\s*)(\S+)/gi, "$1[redacted]")
         .replace(/\b[A-Za-z0-9_-]{20,}\b/g, "[redacted]")
         .replace(/(?<![\w@.\-])\d{6}(?![\w@.\-])/g, "[redacted]");
-}
-
-/**
- * Verifies the running Node major version meets {@link MIN_NODE_MAJOR}. Kept
- * pure (takes the version string) so it is testable; main() passes
- * process.version and exits 1 on failure.
- */
-export function checkNodeVersion(version: string = process.version): { ok: boolean; message?: string } {
-    const major = Number.parseInt(version.replace(/^v/, ""), 10);
-    if (!Number.isFinite(major) || major < MIN_NODE_MAJOR) {
-        return {
-            ok: false,
-            message:
-                `auto-reg: 需要 Node ${MIN_NODE_MAJOR} 或更高版本，当前为 ${version}。` +
-                `请升级 Node 后重试（例如 nvm install ${MIN_NODE_MAJOR}）。`,
-        };
-    }
-    return { ok: true };
 }
 
 /**
