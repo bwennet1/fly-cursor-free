@@ -1,7 +1,7 @@
 {
     "count": 1,
     "dryRun": false,
-    "headed": false,
+    "headed": true,
     "timeoutMs": 120000,
     "signupUrl": "https://authenticator.cursor.sh/sign-up",
     "email": {

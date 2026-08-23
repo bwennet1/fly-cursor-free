@@ -12,7 +12,7 @@
     const dryRunCommand =
         "cd packages/auto-reg && AUTO_REG_VAULT_PASSWORD='一段强口令' node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json";
     const runCommand =
-        "cd packages/auto-reg && AUTO_REG_VAULT_PASSWORD='一段强口令' node --experimental-strip-types src/cli.ts register --config config.local.json";
+        "cd packages/auto-reg && AUTO_REG_VAULT_PASSWORD='一段强口令' node --experimental-strip-types src/cli.ts register --headed --config config.local.json";
 
     const allocateEmailApi = "GET https://liao.bot/email-api/get-email?domain=bwen.net";
     const firstEmailApi = "GET https://liao.bot/email-api/first-email?femail=<allocated>";
@@ -169,7 +169,9 @@
                         4️⃣ <b>设置账号库加密口令</b>：账号库<b>默认加密</b>（<code>output.encrypt</code> 默认
                         <code>true</code>，AES-256-GCM，口令经 scrypt 派生），口令通过环境变量
                         <code>AUTO_REG_VAULT_PASSWORD</code> 注入、<b>切勿写进配置文件</b>，register 前必须设置；<br />
-                        5️⃣ 去掉 <code>--dry-run</code>，设置口令后指向本地配置运行：
+                        5️⃣ 去掉 <code>--dry-run</code>，<b>真实注册必须加 <code>--headed</code></b>（有头模式，示例配置已默认
+                        <code>headed: true</code>）——会弹出浏览器窗口，遇到 Turnstile
+                        人机验证时请在窗口中手动点选完成，完成后流程自动继续：
                     </p>
 
                     <div class="command-row">
@@ -186,8 +188,9 @@
                     </div>
 
                     <p class="license-tip">
-                        ⚠️ 边界说明：遇到人机验证（Turnstile
-                        等）时<b>需要人工在弹出的浏览器窗口中手动完成</b>（headed 模式，不做自动过验证）；该 CLI
+                        ⚠️ 边界说明：<b>真实注册必须 <code>--headed</code></b>——遇到人机验证（Turnstile
+                        等）时<b>需要人工在弹出的浏览器窗口中手动点选完成</b>（不做任何自动过验证），headless
+                        跑真实注册会在 challenge 阶段直接失败并提示改用 <code>--headed</code>；该 CLI
                         <b>不做机器码重置</b>，只负责注册与账号落盘；账号库含密码与 session token，默认加密后需用同一
                         <code>AUTO_REG_VAULT_PASSWORD</code> 口令解密，口令丢失不可恢复，请妥善备份。
                     </p>

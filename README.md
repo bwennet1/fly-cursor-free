@@ -125,9 +125,9 @@ cd packages/auto-reg && node --experimental-strip-types src/cli.ts register --dr
 
 账号库**默认加密**（`output.encrypt` 默认 `true`，AES-256-GCM，口令经 scrypt 派生），口令用环境变量 `AUTO_REG_VAULT_PASSWORD` 注入、**绝不写进配置**。**register 前先 `export AUTO_REG_VAULT_PASSWORD=...`；dry-run 同样需要**（它也写账号库，缺口令会在校验阶段报错）。
 
-正式使用：复制 `examples/config.example.json` 为本地配置 → 确认域名 / liao.bot 配置（或换成你自己的域名与收件邮箱）→ 设置 `AUTO_REG_VAULT_PASSWORD` → 去掉 `--dry-run` 并指向本地配置运行。
+正式使用：复制 `examples/config.example.json` 为本地配置 → 确认域名 / liao.bot 配置（或换成你自己的域名与收件邮箱）→ 设置 `AUTO_REG_VAULT_PASSWORD` → 去掉 `--dry-run`、**加上 `--headed`（真实注册必须有头模式，示例配置已默认 `headed: true`）** 并指向本地配置运行。
 
-注意边界：遇到人机验证需人工在浏览器窗口（headed）手动完成；该 CLI 不做机器码重置；因公开仓不含 Electron 主进程，应用内「注册」页签（`src/renderer/src/components/AutoRegPanel.vue`）只提供命令说明，不能一键运行。
+注意边界：**真实注册必须 `--headed`**——遇到 Turnstile 等人机验证时需人工在弹出的浏览器窗口里手动点选完成（不做任何自动绕过），headless 跑真实注册会在 challenge 阶段直接失败并提示改用 `--headed`；该 CLI 不做机器码重置；因公开仓不含 Electron 主进程，应用内「注册」页签（`src/renderer/src/components/AutoRegPanel.vue`）只提供命令说明，不能一键运行。
 
 ---
 

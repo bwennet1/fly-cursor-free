@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { loadConfig, resolveVaultPassword } from "./config.ts";
 import { runRegister } from "./pipeline.ts";
-import type { AutoRegConfig, OutputConfig, PipelineEvent, RegisterResult } from "./types.js";
+import type { AutoRegConfig, PipelineEvent, RegisterResult } from "./types.js";
 
 interface CliArgs {
     command?: string;
@@ -89,8 +89,19 @@ async function main(argv: string[]): Promise<void> {
         `auto-reg register  count=${config.count}  dry-run=${config.dryRun}  headed=${config.headed}`,
     );
 
-    const results = await runRegister(config, onEvent);
-    printSummary(results, config.output);
+    if (!config.dryRun && !config.headed) {
+        console.error(
+            [
+                "auto-reg: 警告：真实注册（dry-run=false）正以 headless（headed=false）模式运行。",
+                "  注册页几乎必然出现 Turnstile 人机验证，无头模式下没有窗口可供人工点选，",
+                "  流程会在 challenge 阶段直接失败（CHALLENGE_REQUIRED）。",
+                "  请改用 --headed（或在配置里把 headed 设为 true），并在弹出的浏览器窗口里手动完成验证。",
+            ].join("\n"),
+        );
+    }
+
+    const results = await runRegister(config, makeEventPrinter(config));
+    printSummary(results, config);
 
     const succeeded = results.filter((r) => r.ok).length;
     if (results.length > 0 && succeeded === 0) {
@@ -99,19 +110,34 @@ async function main(argv: string[]): Promise<void> {
 }
 
 /**
- * Progress line printed per pipeline event. Only the stage name is echoed —
- * never the free-form message, which may originate from the engine and could
- * contain a verification code or session token.
+ * Progress printer for pipeline events. Only the stage name is echoed — never
+ * the engine's free-form message, which could contain a verification code or
+ * session token. The single exception is a fixed, CLI-owned hint printed when
+ * a run first enters the challenge stage, so a human knows to solve the
+ * Turnstile in the visible browser window (headed) or why the run is about to
+ * fail (headless).
  */
-function onEvent(e: PipelineEvent): void {
-    process.stderr.write(`  · ${e.stage}\n`);
+function makeEventPrinter(config: AutoRegConfig): (e: PipelineEvent) => void {
+    let lastStage: PipelineEvent["stage"] | undefined;
+    return (e: PipelineEvent): void => {
+        process.stderr.write(`  · ${e.stage}\n`);
+        if (e.stage === "challenge" && lastStage !== "challenge") {
+            process.stderr.write(
+                config.headed
+                    ? "    检测到人机验证（Turnstile）：请在弹出的浏览器窗口中手动点选完成验证，完成后流程会自动继续。\n"
+                    : "    检测到人机验证（Turnstile）：headless 模式下无法人工完成，本次注册将失败；请改用 --headed 并在弹出的窗口里手动点选。\n",
+            );
+        }
+        lastStage = e.stage;
+    };
 }
 
 /**
  * Per-account lines only ever echo the email, status and stage — never the
  * password, session token or vault passphrase, regardless of encryption mode.
  */
-function printSummary(results: RegisterResult[], output: OutputConfig): void {
+function printSummary(results: RegisterResult[], config: AutoRegConfig): void {
+    const { output } = config;
     const succeeded = results.filter((r) => r.ok).length;
     console.log("");
     for (const r of results) {
@@ -126,6 +152,14 @@ function printSummary(results: RegisterResult[], output: OutputConfig): void {
             output.encrypt
                 ? `已写入加密账号库: ${output.accountsPath}`
                 : `accounts written to ${output.accountsPath}`,
+        );
+    }
+
+    if (results.some((r) => !r.ok && r.stage === "challenge")) {
+        console.error(
+            config.headed
+                ? "auto-reg: 有注册停在人机验证（challenge）阶段：请在弹出的浏览器窗口里及时手动点选完成验证（如时间不够可调大 timeoutMs 后重试）。"
+                : "auto-reg: 有注册在人机验证（challenge）阶段失败：请改用 --headed 并在弹出的窗口里手动点选完成验证。",
         );
     }
 }
@@ -220,6 +254,8 @@ function printUsage(): void {
             "  --count <n>       Number of accounts to register (overrides config).",
             "  --dry-run         Run without launching a real browser / mutating state.",
             "  --headed          Run the browser engine headed (visible) instead of headless.",
+            "                    真实注册（非 dry-run）必须使用：Turnstile 人机验证只能由人在",
+            "                    弹出的浏览器窗口里手动点选完成，headless 会在 challenge 阶段失败。",
             "  -h, --help        Show this help.",
             "",
             "Registering accounts in bulk usually violates Cursor's Terms of Service.",

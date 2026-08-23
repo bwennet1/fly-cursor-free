@@ -10,6 +10,7 @@ Clean-room（净室自研）的 Cursor 批量注册编排器。它把「身份�
 
 - [运行环境](#运行环境)
 - [快速开始（dry-run）](#快速开始dry-run)
+- [真实注册（必须 --headed）](#真实注册必须---headed)
 - [配置](#配置)
   - [域名](#域名)
   - [邮箱：liao.bot（默认，@bwen.net）](#邮箱liaobot默认bwennet)
@@ -67,6 +68,19 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 
 > 账号库[默认加密](#账号库加密)，而 dry-run 也会真实写入 sink，所以**即便只是 dry-run，也需要先 `export AUTO_REG_VAULT_PASSWORD=...`**（否则会在配置校验阶段报错）。
 
+## 真实注册（必须 --headed）
+
+真实注册（非 dry-run）**必须以有头（headed，浏览器窗口可见）模式运行**：注册页几乎必然弹出 Turnstile 人机验证，本包**不做任何自动绕过**（见[风险](#风险务必先读)），唯一可行路径是**人工在弹出的浏览器窗口里手动点选完成验证**，完成后流程自动继续。
+
+```bash
+export AUTO_REG_VAULT_PASSWORD='一段足够强的口令'
+node --experimental-strip-types src/cli.ts register --headed --config config.local.json
+```
+
+- 示例配置 [`examples/config.example.json`](examples/config.example.json) 已把 `headed` 默认设为 `true`；自己的配置请保持 `headed: true`，或每次在命令行加 `--headed`。
+- 以 headless（`headed=false`）跑真实注册时，CLI 会先在 stderr 打警告；一旦检测到人机验证，该次注册以 `CHALLENGE_REQUIRED` 失败，并提示改用 `--headed` 在窗口中手动点选。
+- headed 模式下检测到验证时，控制台会提示「请在弹出的浏览器窗口中手动点选完成验证」，并轮询等待人工完成；超过 `timeoutMs`（默认 120000 毫秒）仍未完成则该次注册失败，可适当调大后重试。
+
 ## 配置
 
 配置是一个 JSON 文件；加载时会**在内置默认值之上做深合并**，再套用 `AUTO_REG_*` 环境变量，最后做校验。完整示例见 [`examples/config.example.json`](examples/config.example.json)。字段结构定义见 [`src/types.ts`](src/types.ts)。
@@ -77,7 +91,7 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 |---|---|
 | `count` | 注册数量（整数，`>= 1`） |
 | `dryRun` | `true` 走离线 dry-run 引擎；也可用 `--dry-run` 覆盖 |
-| `headed` | 浏览器是否有头（可见），也可用 `--headed` 覆盖 |
+| `headed` | 浏览器是否有头（可见），也可用 `--headed` 覆盖。**真实注册必须为 `true`**（见[真实注册（必须 --headed）](#真实注册必须---headed)）；示例配置已默认 `true` |
 | `timeoutMs` | 单步超时（毫秒，`> 0`） |
 | `signupUrl` | 注册页地址 |
 | `email` | 邮箱 / 收码配置，见下 |
@@ -210,7 +224,9 @@ auto-reg register [options]
   --config <path>   配置文件路径。缺省时用 examples/config.example.json（包根目录或当前目录）。
   --count <n>       本次注册数量（覆盖配置）。
   --dry-run         离线演练：不启动真实浏览器、不改动任何状态。
-  --headed          浏览器有头（可见）运行，而非无头。
+  --headed          浏览器有头（可见）运行，而非无头。真实注册必须使用：
+                    Turnstile 人机验证只能由人在弹出的窗口里手动点选完成，
+                    headless 会在 challenge 阶段直接失败。
   -h, --help        显示帮助。
 ```
 
@@ -266,7 +282,7 @@ console.log(`${ok}/${results.length} succeeded`);
 
 - **违反服务条款**：批量注册、绕过试用通常违反 Cursor 的服务条款，账号可能被封。请仅用于你自己拥有的域名与账号，风险自负。
 - **选择器易失效**：注册页的 DOM / WorkOS next-action / Turnstile 会频繁变化，`selectors` 与 `codeRegex` 必须可配置并随时调整。
-- **人机验证是断点**：真实的 Turnstile 挑战、以及手机 / radar 验证是全自动流程的两处断点；本包把它们当作硬失败 + 需人工介入，不做「假点击」之类的对抗。
+- **人机验证是断点**：真实的 Turnstile 挑战、以及手机 / radar 验证是全自动流程的两处断点；本包把它们当作需人工介入的断点，不做「假点击」之类的对抗。因此**真实注册必须 `--headed`，由人在弹出的窗口里手动点选完成**；headless 下检测到挑战即以 `CHALLENGE_REQUIRED` 失败。
 - **临时邮箱易被拦**：自有 catch-all 域名 + IMAP 是目前更现实的前提。
 - **凭据即风险**：落盘文件含密码与 session token，泄露等于账号泄露；建议开启[账号库加密](#账号库加密)（`output.encrypt` + `AUTO_REG_VAULT_PASSWORD`），并妥善保管口令。
 

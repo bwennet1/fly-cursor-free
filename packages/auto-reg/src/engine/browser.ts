@@ -103,8 +103,9 @@ async function looksLikeChallenge(page: Page, hint: string): Promise<boolean> {
 
 /**
  * Handles a detected challenge without ever bypassing it. In headed mode we
- * poll and let a human solve it until the configured timeout; in headless mode
- * (or on timeout) we abort with a CHALLENGE_REQUIRED error.
+ * poll and let a human solve it in the visible browser window until the
+ * configured timeout; in headless mode (or on timeout) we abort with a
+ * CHALLENGE_REQUIRED error that tells the user to re-run with --headed.
  */
 async function handleChallenge(
     page: Page,
@@ -113,21 +114,27 @@ async function handleChallenge(
 ): Promise<void> {
     if (!(await looksLikeChallenge(page, config.selectors.challengeHint))) return;
 
-    emit("challenge", "anti-bot challenge detected (turnstile / captcha / challenge)");
-
     if (!config.headed) {
+        emit("challenge", "anti-bot challenge detected while running headless");
         throw new AutoRegError(
             "challenge",
             ErrorCodes.CHALLENGE_REQUIRED,
-            "a bot challenge was detected; re-run in headed mode and solve it manually (no automated bypass is attempted)",
+            "检测到人机验证（Turnstile / captcha），但当前为 headless（headed=false）模式，" +
+                "没有可见的浏览器窗口供人工操作，无法继续。请改用 --headed（或在配置里把 headed 设为 true）重跑，" +
+                "并在弹出的浏览器窗口里手动点选完成验证。本工具不做任何自动绕过。",
         );
     }
+
+    emit(
+        "challenge",
+        "检测到人机验证（Turnstile / captcha）：请在弹出的浏览器窗口中手动完成验证，完成后注册流程会自动继续",
+    );
 
     const deadline = Date.now() + config.timeoutMs;
     while (Date.now() < deadline) {
         await page.waitForTimeout(CHALLENGE_POLL_MS);
         if (!(await looksLikeChallenge(page, config.selectors.challengeHint))) {
-            emit("challenge", "challenge cleared manually");
+            emit("challenge", "人机验证已手动完成，继续注册流程");
             return;
         }
     }
@@ -135,7 +142,8 @@ async function handleChallenge(
     throw new AutoRegError(
         "challenge",
         ErrorCodes.CHALLENGE_REQUIRED,
-        "challenge was not solved before the timeout; no automated bypass is attempted",
+        `人机验证未在 ${config.timeoutMs}ms 超时前完成；请重跑并在弹出的浏览器窗口中及时手动点选完成验证` +
+            "（如时间不够可适当调大 timeoutMs）。本工具不做任何自动绕过。",
     );
 }
 
