@@ -1,0 +1,22 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.5;
+}
+
+.app-shell {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px 16px 24px;
+}
+
+.hidden {
+  display: none !important;
+}

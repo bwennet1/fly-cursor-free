@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/lxf746/any-auto-register
+Cloned commit SHA: 388204810e80553616fa7b7d6a7518dc0626b05f
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

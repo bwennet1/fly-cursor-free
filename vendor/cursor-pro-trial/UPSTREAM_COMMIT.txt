@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/aigem/cursor-pro-trial
+Cloned commit SHA: b733fdf1a8e5c833bbb15d575c816bfe23774395
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.
