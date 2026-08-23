@@ -1,0 +1,20 @@
+turnstilePatch — CDP MouseEvent.screenX / screenY patcher
+
+Upstream technique:
+  https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher
+  https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher
+
+Vendored into this package from the Cursor-Register research copy
+(vendor/cursor-register/turnstilePatch), then updated to the getter form
+(clientX/clientY + random offset, also PointerEvent) that Turnstile checks.
+Manifest shape still matches Cursor-Register MV3 (MAIN world, all_frames,
+document_start).
+
+What it does (and does not do):
+  Patches CDP's broken screenX/screenY fingerprint. It is NOT a Turnstile
+  solver, captcha farm, or checkbox auto-clicker.
+
+Playwright note:
+  Chrome extensions do NOT load under Playwright's chrome-headless-shell
+  (headless:false / headed is required for --load-extension). In headless
+  mode auto-reg still injects script.js via addInitScript.
