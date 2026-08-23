@@ -42,3 +42,17 @@
 7. 账号落盘（JSON / CSV / SQLite）或推到 OneAPI / 自建网关
 
 **手机 / radar 验证**和 **Turnstile 真挑战**是全自动的两处断点。闭源产品（YCursor / XC-Cursor）在 UI 上声称接了接码平台，公开仓里看不到实现。
+
+## turnstilePatch 对照（已移植进 `packages/auto-reg`）
+
+同源技术来自 [TheFalloutOf76 CDP MouseEvent.screenX/Y patcher](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher)，经 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) 引入（`vendor/cursor-register` 已浅克隆，与上游一致）。**只修 CDP 指纹，不是打码。**
+
+| 路径 | 与 Cursor-Register 关系 |
+|---|---|
+| `vendor/cursor-register/turnstilePatch/` | **权威对照**（JiuZX） |
+| `vendor/cursor-auto-free/turnstilePatch/` 等（auto-gui / icloud / free-vip / wf） | 同 script.js 哈希；祖师爷系副本 |
+| `vendor/zzxcursor/core/turnstilePatch/` | MIT；额外带自动点 checkbox 逻辑，**未**并入 auto-reg |
+| `vendor/any-auto-register/services/turnstile_solver/` | AGPL 打码服务，**不可**拷进 MIT 包 |
+| `packages/auto-reg/resources/turnstilePatch/` | **已落地**：与 JiuZX 同源 manifest + script；浏览器引擎默认 `--load-extension` + `addInitScript` |
+
+配置项：`turnstilePatch`（默认 `true`）。

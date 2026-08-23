@@ -24,6 +24,12 @@ export interface AutoRegConfig {
     count: number;
     dryRun: boolean;
     headed: boolean;
+    /**
+     * Load the packaged turnstilePatch (CDP MouseEvent.screenX/Y fix from
+     * TheFalloutOf76 / Cursor-Register). Default true. This is not a captcha
+     * solver — unresolved challenges still fail or wait for a human.
+     */
+    turnstilePatch: boolean;
     timeoutMs: number;
     signupUrl: string;
     email: EmailConfig;

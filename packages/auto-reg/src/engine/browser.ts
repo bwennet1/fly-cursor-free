@@ -1,4 +1,8 @@
-import type { Browser, Page } from "playwright";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+import type { BrowserContext, Page } from "playwright";
 
 import { AutoRegError, ErrorCodes } from "../errors.ts";
 import { parseSessionCookie } from "../token/session.ts";
@@ -9,6 +13,7 @@ import type {
     RegisterEngine,
     RegisterStage,
 } from "../types.js";
+import { resolveTurnstilePatchDir, resolveTurnstilePatchScript } from "./turnstile-patch.ts";
 
 /**
  * Playwright is a regular dependency of this package (`npm install` brings in
@@ -47,15 +52,78 @@ async function loadPlaywright(): Promise<PlaywrightModule> {
     }
 }
 
+interface OpenedContext {
+    context: BrowserContext;
+    /** Temp profile dir used by launchPersistentContext; removed in close(). */
+    userDataDir: string;
+}
+
 /**
- * Launches Chromium, translating Playwright's "executable doesn't exist" error
- * into an actionable hint: the library is installed via npm, but the browser
- * binaries come from `npx playwright install chromium`.
+ * Opens a Chromium context for signup.
+ *
+ * turnstilePatch (default on) applies the CDP screenX/screenY fix from
+ * Cursor-Register / TheFalloutOf76 / Xewdy444:
+ *
+ * - **headed**: load the MV3 extension via `--load-extension` (same idea as
+ *   DrissionPage `add_extension`), and strip Playwright's default
+ *   `--disable-extensions` so the flag is not a no-op.
+ * - **headless**: Playwright uses `chrome-headless-shell`, which does **not**
+ *   support Chrome extensions. We skip `--load-extension` and only inject
+ *   `script.js` via `addInitScript`. That still does not make Turnstile
+ *   reliably pass headless — expect CHALLENGE_REQUIRED or use `--headed`.
  */
-async function launchChromium(playwright: PlaywrightModule, headed: boolean): Promise<Browser> {
+async function openContext(
+    playwright: PlaywrightModule,
+    config: AutoRegConfig,
+    emit: (stage: RegisterStage, message: string) => void,
+): Promise<OpenedContext> {
+    const headed = config.headed;
+    const patchEnabled = config.turnstilePatch !== false;
+    const patchDir = patchEnabled ? resolveTurnstilePatchDir() : undefined;
+    const patchScript = patchEnabled ? resolveTurnstilePatchScript() : undefined;
+
+    if (patchEnabled && !patchDir) {
+        emit(
+            "open_signup",
+            "turnstilePatch enabled but resources/turnstilePatch was not found; continuing without the CDP screenXY patch",
+        );
+    }
+
+    const userDataDir = await mkdtemp(path.join(tmpdir(), "auto-reg-chromium-"));
+    const args: string[] = [];
+    // Extensions only work in headed Chromium under Playwright — not under
+    // chrome-headless-shell (which also defaults to --disable-extensions).
+    const loadExtension = Boolean(patchDir && headed);
+    if (loadExtension && patchDir) {
+        args.push(`--disable-extensions-except=${patchDir}`);
+        args.push(`--load-extension=${patchDir}`);
+        emit("open_signup", `loading turnstilePatch extension from ${patchDir}`);
+    } else if (patchDir && !headed) {
+        emit(
+            "open_signup",
+            "headless: skipping --load-extension (chrome-headless-shell cannot load MV3); " +
+                "injecting script.js via addInitScript only — Turnstile usually still needs --headed",
+        );
+    }
+
     try {
-        return await playwright.chromium.launch({ headless: !headed });
+        const context = await playwright.chromium.launchPersistentContext(userDataDir, {
+            headless: !headed,
+            args,
+            // Without this, Playwright keeps --disable-extensions and the
+            // --load-extension flags above are ineffective.
+            ignoreDefaultArgs: loadExtension ? ["--disable-extensions"] : undefined,
+            viewport: { width: 1280, height: 800 },
+        });
+
+        if (patchScript) {
+            await context.addInitScript({ path: patchScript });
+            emit("open_signup", "injected turnstilePatch script.js via addInitScript");
+        }
+
+        return { context, userDataDir };
     } catch (error) {
+        await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
         const message = error instanceof Error ? error.message : String(error);
         if (MISSING_BROWSER_PATTERN.test(message)) {
             throw new AutoRegError(
@@ -65,6 +133,14 @@ async function launchChromium(playwright: PlaywrightModule, headed: boolean): Pr
             );
         }
         throw error;
+    }
+}
+
+async function closeOpened(opened: OpenedContext): Promise<void> {
+    try {
+        await opened.context.close();
+    } finally {
+        await rm(opened.userDataDir, { recursive: true, force: true }).catch(() => undefined);
     }
 }
 
@@ -102,9 +178,9 @@ async function looksLikeChallenge(page: Page, hint: string): Promise<boolean> {
 }
 
 /**
- * Handles a detected challenge without ever bypassing it. In headed mode we
- * poll and let a human solve it until the configured timeout; in headless mode
- * (or on timeout) we abort with a CHALLENGE_REQUIRED error.
+ * Handles a detected challenge. turnstilePatch only fixes CDP screenX/screenY;
+ * it does not solve Turnstile. In headed mode we poll for a human; in headless
+ * (or on timeout) we abort with CHALLENGE_REQUIRED.
  */
 async function handleChallenge(
     page: Page,
@@ -119,7 +195,10 @@ async function handleChallenge(
         throw new AutoRegError(
             "challenge",
             ErrorCodes.CHALLENGE_REQUIRED,
-            "a bot challenge was detected; re-run in headed mode and solve it manually (no automated bypass is attempted)",
+            "a bot challenge was detected under headless Chromium; " +
+                "Playwright's chrome-headless-shell cannot load the turnstilePatch MV3 extension, " +
+                "and Turnstile rarely passes without a real display — re-run with --headed " +
+                "(turnstilePatch is a CDP screenX/Y fingerprint fix, not a captcha solver)",
         );
     }
 
@@ -137,6 +216,32 @@ async function handleChallenge(
         ErrorCodes.CHALLENGE_REQUIRED,
         "challenge was not solved before the timeout; no automated bypass is attempted",
     );
+}
+
+/**
+ * Clicks Continue without waiting on a post-click navigation. Turnstile often
+ * covers the button / blocks navigation; a long Playwright actionability wait
+ * looks like a hang at `submit_profile`. If the click is obstructed, fall
+ * through to {@link handleChallenge} instead of spinning for `timeoutMs`.
+ */
+async function clickContinue(
+    page: Page,
+    selector: string,
+    timeout: number,
+    config: AutoRegConfig,
+    emit: (stage: RegisterStage, message: string) => void,
+): Promise<void> {
+    const clickTimeout = Math.min(timeout, 20_000);
+    try {
+        await page.click(selector, { timeout: clickTimeout, noWaitAfter: true });
+    } catch (error) {
+        if (await looksLikeChallenge(page, config.selectors.challengeHint)) {
+            await handleChallenge(page, config, emit);
+            return;
+        }
+        throw error;
+    }
+    await handleChallenge(page, config, emit);
 }
 
 /** Aborts with PHONE_REQUIRED when the page URL or text asks for phone/radar verification. */
@@ -173,8 +278,9 @@ async function fillOtp(page: Page, selector: string, code: string): Promise<void
 
 /**
  * Real registration engine driven by Playwright/Chromium. Fills the signup
- * form, respects (never bypasses) anti-bot challenges and phone verification,
- * enters the emailed code and finally extracts the session token from the
+ * form, applies the packaged turnstilePatch CDP screenXY fix, still treats
+ * unresolved challenges and phone verification as hard failures, enters the
+ * emailed code and finally extracts the session token from the
  * `WorkosCursorSessionToken` cookie.
  */
 export class BrowserEngine implements RegisterEngine {
@@ -194,10 +300,10 @@ export class BrowserEngine implements RegisterEngine {
         };
 
         const playwright = await loadPlaywright();
-        const browser = await launchChromium(playwright, config.headed);
+        const opened = await openContext(playwright, config, emit);
         try {
-            const context = await browser.newContext();
-            const page = await context.newPage();
+            const { context } = opened;
+            const page = context.pages()[0] ?? (await context.newPage());
 
             emit("open_signup", `opening ${config.signupUrl}`);
             await page.goto(config.signupUrl, { waitUntil: "domcontentloaded", timeout });
@@ -206,16 +312,13 @@ export class BrowserEngine implements RegisterEngine {
             await page.fill(selectors.firstName, identity.firstName, { timeout });
             await page.fill(selectors.lastName, identity.lastName, { timeout });
             await page.fill(selectors.email, identity.email, { timeout });
-            await page.click(selectors.continueButton, { timeout });
-
-            await handleChallenge(page, config, emit);
+            await clickContinue(page, selectors.continueButton, timeout, config, emit);
             await assertNoPhoneVerification(page, "submit_profile");
 
             if (await present(page, selectors.password)) {
                 emit("submit_password", "filling password");
                 await page.fill(selectors.password, identity.password, { timeout });
-                await page.click(selectors.continueButton, { timeout });
-                await handleChallenge(page, config, emit);
+                await clickContinue(page, selectors.continueButton, timeout, config, emit);
             }
 
             await assertNoPhoneVerification(page, "submit_code");
@@ -240,7 +343,7 @@ export class BrowserEngine implements RegisterEngine {
 
             return { sessionToken, code };
         } finally {
-            await browser.close();
+            await closeOpened(opened);
         }
     }
 }

@@ -18,6 +18,7 @@ function makeConfig(overrides: Partial<AutoRegConfig> = {}): AutoRegConfig {
         count: 1,
         dryRun: true,
         headed: false,
+        turnstilePatch: true,
         timeoutMs: 1000,
         signupUrl: "https://authenticator.cursor.sh",
         email: {

@@ -41,6 +41,9 @@ npm run auto-reg:install
 ```
 
 - 真实注册（非 dry-run）时才需要上面的 Playwright / Chromium 与可访问的邮箱。**dry-run 完全离线，不需要安装 Chromium 也能跑通流水线形状。**
+- **turnstilePatch（默认开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的 MV3 扩展（`resources/turnstilePatch`）。只修补 CDP 下 `screenX/screenY` 指纹（getter：`clientX + offset`），**不是验证码求解器**。
+  - **有头（`--headed`）**：用 `--load-extension` 加载扩展（并去掉 Playwright 默认的 `--disable-extensions`），等同 vendor 里 DrissionPage `add_extension`。
+  - **无头**：Playwright 走 `chrome-headless-shell`，**无法加载 MV3 扩展**；只会 `addInitScript` 注入 `script.js`。Turnstile 在无头下通常仍过不了——这是卡住的根因，不是「补丁没拷进来」。
 
 ## 快速开始（dry-run）
 
@@ -78,6 +81,7 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 | `count` | 注册数量（整数，`>= 1`） |
 | `dryRun` | `true` 走离线 dry-run 引擎；也可用 `--dry-run` 覆盖 |
 | `headed` | 浏览器是否有头（可见），也可用 `--headed` 覆盖 |
+| `turnstilePatch` | **默认 `true`**：加载 `resources/turnstilePatch`（CDP screenX/Y 补丁）。不是验证码求解器 |
 | `timeoutMs` | 单步超时（毫秒，`> 0`） |
 | `signupUrl` | 注册页地址 |
 | `email` | 邮箱 / 收码配置，见下 |

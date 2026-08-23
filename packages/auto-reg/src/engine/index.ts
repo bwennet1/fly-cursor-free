@@ -3,6 +3,7 @@ import { createBrowserEngine } from "./browser.ts";
 import { createDryRunEngine } from "./dry-run.ts";
 
 export { BrowserEngine, createBrowserEngine } from "./browser.ts";
+export { resolveTurnstilePatchDir, resolveTurnstilePatchScript } from "./turnstile-patch.ts";
 export { DryRunEngine, createDryRunEngine } from "./dry-run.ts";
 
 /**
