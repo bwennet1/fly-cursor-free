@@ -14,7 +14,9 @@
         "build:mac": "npm run build && electron-builder --mac",
         "build:linux": "npm run build && electron-builder --linux",
         "preview": "electron-builder --dir",
-        "build:win:hash": "yarn build:win && node src/script/inject-hash.cjs && electron-builder --win"
+        "build:win:hash": "yarn build:win && node src/script/inject-hash.cjs && electron-builder --win",
+        "auto-gui": "python3 vendor/cursor-auto-gui/main.py",
+        "auto-gui:setup": "pip3 install -r vendor/cursor-auto-gui/requirements.txt"
     },
     "dependencies": {
         "@electron-toolkit/preload": "^3.0.1",
