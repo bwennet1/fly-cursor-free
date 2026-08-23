@@ -1,0 +1,8 @@
+Upstream repository: https://github.com/CavinHuang/cursor-auto-gui
+Cloned commit SHA: a946fa72cba248548fe5dda4ff814fc98dd90b70
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1 https://github.com/CavinHuang/cursor-auto-gui.git vendor/cursor-auto-gui
+Upstream version file: v0.0.3
+License: CC BY-NC-ND 4.0 (https://creativecommons.org/licenses/by-nc-nd/4.0/)
+Note: This file is metadata added by the FlyCursor repository. The upstream
+source code in this directory is an unmodified verbatim copy.

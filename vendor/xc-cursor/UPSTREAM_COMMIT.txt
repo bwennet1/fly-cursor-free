@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/Aeth247/XC-Cursor
+Cloned commit SHA: 28f05e2e5c79f7d22c16cf0644d154a54aff11ec
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

@@ -8,6 +8,8 @@
     import AccountManagement from "./AccountManagement.vue";
     import UseAccountConfirmationDialog from "./UseAccountConfirmationDialog.vue";
     import Settings from "./Settings.vue";
+    import CursorAutoGuiPanel from "./CursorAutoGuiPanel.vue";
+    import AutoRegPanel from "./AutoRegPanel.vue";
     import SettingsDialog from "./SettingsDialog.vue";
     import BackupSettingsDialog from "./BackupSettingsDialog.vue";
     import RestoreBackupDialog from "./RestoreBackupDialog.vue";
@@ -862,6 +864,12 @@
                     </el-scrollbar>
                 </div>
             </el-tab-pane> -->
+            <el-tab-pane label="Auto GUI" name="autogui">
+                <CursorAutoGuiPanel />
+            </el-tab-pane>
+            <el-tab-pane label="注册" name="autoreg">
+                <AutoRegPanel />
+            </el-tab-pane>
             <el-tab-pane label="设置" name="fourth">
                 <div class="body-card-item">
                     <Settings ref="settingsRef" />

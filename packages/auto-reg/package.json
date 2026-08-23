@@ -1,0 +1,22 @@
+{
+    "name": "@flycursor/auto-reg",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Clean-room Cursor signup orchestrator: identity, mailbox, browser, JSON sink",
+    "type": "module",
+    "license": "MIT",
+    "bin": {
+        "auto-reg": "./src/cli.ts"
+    },
+    "scripts": {
+        "start": "node --experimental-strip-types src/cli.ts",
+        "register": "node --experimental-strip-types src/cli.ts register",
+        "test": "node --experimental-strip-types --test test/*.test.ts"
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "dependencies": {
+        "playwright": "^1.62.1"
+    }
+}
