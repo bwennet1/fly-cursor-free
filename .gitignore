@@ -24,6 +24,5 @@ accounts.json
 
 .auto-reg-vault-password.local
 
-# accidental nested clones / worktrees from local agents
+# accidental nested clones from local agents
 /fly-cursor-free/
-/fly-docs-wt/

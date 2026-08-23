@@ -102,6 +102,15 @@ CLI、配置校验、身份生成、IMAP / tempmail.plus / manual 收码、dry-r
 **M2 — 闭环自动 REG（加密已落地）**  
 dry-run 可闭环写入账号库 sink（原子写、0600）。真实浏览器路径：收码 → 填 OTP → 解析会话 cookie。**默认收码通道为 liao.bot 邮件 API + `bwen.net` 域名**（`get-email` 分配地址、`first-email` 轮询查信）。**账号库加密已落地且默认开启**（`output.encrypt` 默认 `true`）：账号库以 AES-256-GCM 落盘，密钥由环境变量 `AUTO_REG_VAULT_PASSWORD` 口令经 scrypt 派生（文件权限仍为 0600）。正式注册缺口令仍报错；**dry-run 缺口令改为本次明文落盘 + 警告**。失败尝试默认也落盘（`persistFailures`，不含密码 / token）。真实注册默认 headed。OS keychain 尚未做。
 
+### Runtime notes（`packages/auto-reg` 当前行为）
+
+- 需要 **Node >= 22**（`--experimental-strip-types`）。
+- **dry-run** 未设 `AUTO_REG_VAULT_PASSWORD` 时自动关加密并警告；正式跑仍须口令。
+- **真实注册默认 headed**；`--headless` 强制无头（无头不能加载 MV3 扩展）。
+- `output.persistFailures` 默认 `true`：失败记录抹掉密码 / token / 验证码后再写入。
+- `turnstilePatch` 只修 CDP `screenX` / `screenY`，**不是**验证码求解器；人机验证需人工。
+- 不要把 vendor 里的 ND / AGPL 源码合并进本包。
+
 **M3 — 接 FlyCursor**  
 只通过稳定 IPC / 导入 JSON，不把 Python 塞进被 gitignore 的 `src/main`。渲染层已有 Auto GUI 页签，可再加「导入 auto-reg 结果」。
 
