@@ -13,7 +13,7 @@ import type {
     RegisterEngine,
     RegisterStage,
 } from "../types.js";
-import { resolveTurnstilePatchDir, resolveTurnstilePatchScript } from "./turnstile-patch.ts";
+import { resolveTurnstilePatchScript } from "./turnstile-patch.ts";
 
 /**
  * Playwright is a regular dependency of this package (`npm install` brings in
@@ -27,6 +27,19 @@ const MISSING_BROWSER_PATTERN = /executable doesn't exist|playwright install/i;
 
 /** Default text/markers that identify an anti-bot challenge page. */
 const DEFAULT_CHALLENGE_PATTERN = /turnstile|captcha|hcaptcha|recaptcha|cf-chl|challenge|are you (a )?human/i;
+
+/**
+ * Cloudflare interstitial markers (page <title> or body). This is the "Just a
+ * moment…" managed-challenge page Cloudflare serves *before* the real sign-up
+ * form — including the "Incompatible browser extension or network
+ * configuration" note it shows when it detects a loaded browser extension.
+ * These map to CHALLENGE_REQUIRED and must fail fast, never poll.
+ */
+const CLOUDFLARE_INTERSTITIAL_PATTERN =
+    /just a moment|incompatible browser extension|performing security verification|security verification|checking your browser|attention required|cf-browser-verification/i;
+
+/** HTTP 429 / rate-limit markers in page text (the status code is checked separately). */
+const RATE_LIMIT_PATTERN = /too many requests|rate limit|error 1015|\b429\b/i;
 
 /** Markers that identify a phone / "radar" risk verification step. */
 const PHONE_PATTERN = /phone|radar/i;
@@ -50,10 +63,11 @@ export const HEADLESS_SHELL_ENV = "PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL";
 
 /**
  * Forces Playwright to launch full Chromium instead of `chrome-headless-shell`
- * by setting {@link HEADLESS_SHELL_ENV}=0. `chrome-headless-shell` cannot load
- * MV3 extensions and is the binary that stalled the real headless run in
- * docs/问题.md. Mutates and returns `env` (defaults to `process.env`) so the
- * behaviour is testable without launching a browser.
+ * by setting {@link HEADLESS_SHELL_ENV}=0. `chrome-headless-shell` is the
+ * headless-only binary that stalled the real run in docs/问题.md and is more
+ * obviously automated; full Chromium is the closer match to a real browser.
+ * Mutates and returns `env` (defaults to `process.env`) so the behaviour is
+ * testable without launching a browser.
  */
 export function disableHeadlessShell(
     env: NodeJS.ProcessEnv = process.env,
@@ -64,47 +78,33 @@ export function disableHeadlessShell(
 
 /** How Chromium should be launched for a run (see {@link planChromiumLaunch}). */
 export interface ChromiumLaunchPlan {
-    /** Extra Chromium CLI args (only the extension flags in headed mode). */
+    /** Extra Chromium CLI args. Always empty: we never load the MV3 extension. */
     args: string[];
-    /**
-     * Default args to strip. Only set (to `["--disable-extensions"]`) when the
-     * extension is loaded; otherwise `undefined` so Playwright keeps its
-     * defaults.
-     */
+    /** Default args to strip. Always `undefined` — Playwright keeps its defaults. */
     ignoreDefaultArgs: string[] | undefined;
-    /** True only in headed mode with a resolved patch dir. */
+    /** Always false: the MV3 turnstilePatch extension is never loaded. */
     loadExtension: boolean;
 }
 
 /**
- * Decides the Chromium launch flags for a run — the crux of docs/问题.md #1–#2.
+ * Chromium launch flags for a sign-up run.
  *
- * - **headed + patch dir**: pass `--disable-extensions-except` and
- *   `--load-extension` for the MV3 turnstilePatch, and strip Playwright's
- *   default `--disable-extensions` via `ignoreDefaultArgs` (otherwise
- *   `--load-extension` is silently a no-op).
- * - **headless (or no patch dir)**: never pass `--load-extension`. Headless
- *   Chromium keeps `--disable-extensions`, so loading an MV3 extension there
- *   only produces the fighting flags recorded in 问题.md. The screenX/Y patch
- *   is still injected via `addInitScript` by the caller.
+ * We deliberately **never** load the turnstilePatch MV3 extension via
+ * `--load-extension` / `--disable-extensions-except`, in headed or headless
+ * mode. Cloudflare's interstitial explicitly flags a loaded extension as an
+ * "Incompatible browser extension or network configuration" and blocks the
+ * sign-up form (docs/问题.md) — the extension is what triggers the very
+ * interstitial we are trying to avoid.
  *
- * Pure and synchronous so tests can assert the flags without launching Chromium.
+ * The screenX/screenY patch is instead injected as a page init script
+ * (`addInitScript`), and only when `config.turnstilePatch` is explicitly
+ * enabled. That is a plain page script, not a loaded extension, so Cloudflare
+ * does not treat it as an incompatible extension.
+ *
+ * Pure and synchronous so tests can assert we never pass extension flags.
  */
-export function planChromiumLaunch(
-    headed: boolean,
-    patchDir: string | undefined,
-): ChromiumLaunchPlan {
-    const loadExtension = Boolean(patchDir && headed);
-    const args: string[] = [];
-    if (loadExtension && patchDir) {
-        args.push(`--disable-extensions-except=${patchDir}`);
-        args.push(`--load-extension=${patchDir}`);
-    }
-    return {
-        args,
-        ignoreDefaultArgs: loadExtension ? ["--disable-extensions"] : undefined,
-        loadExtension,
-    };
+export function planChromiumLaunch(): ChromiumLaunchPlan {
+    return { args: [], ignoreDefaultArgs: undefined, loadExtension: false };
 }
 
 /**
@@ -134,20 +134,17 @@ interface OpenedContext {
 /**
  * Opens a Chromium context for signup.
  *
- * turnstilePatch (default on) applies the CDP screenX/screenY fix from
- * Cursor-Register / TheFalloutOf76 / Xewdy444:
+ * The turnstilePatch MV3 extension is **never** loaded via `--load-extension`:
+ * Cloudflare's interstitial flags a loaded extension as an "Incompatible
+ * browser extension" and blocks the sign-up form (docs/问题.md). When
+ * `config.turnstilePatch` is explicitly enabled (opt-in; default false) the CDP
+ * screenX/Y fix from Cursor-Register / TheFalloutOf76 / Xewdy444 is injected as
+ * a plain page init script (`addInitScript`) instead. That is not a captcha
+ * solver — unresolved challenges still fail or wait for a human.
  *
- * - Forces full Chromium (not `chrome-headless-shell`) via
- *   {@link disableHeadlessShell} so headless launches match the extension
- *   policy below (docs/问题.md #1).
- * - **headed**: load the MV3 extension via `--load-extension` (same idea as
- *   DrissionPage `add_extension`), and strip Playwright's default
- *   `--disable-extensions` so the flag is not a no-op.
- * - **headless**: skip `--load-extension` entirely — headless Chromium keeps
- *   `--disable-extensions`, so the two flags would fight (docs/问题.md #2). Only
- *   `script.js` is injected via `addInitScript`. That still does not make
- *   Turnstile reliably pass headless — expect CHALLENGE_REQUIRED or use
- *   `--headed`.
+ * {@link disableHeadlessShell} still forces full Chromium (not
+ * `chrome-headless-shell`) because the headless-only binary is the one that
+ * stalled the real run in docs/问题.md and is more obviously automated.
  */
 async function openContext(
     playwright: PlaywrightModule,
@@ -155,54 +152,39 @@ async function openContext(
     emit: (stage: RegisterStage, message: string) => void,
 ): Promise<OpenedContext> {
     const headed = config.headed;
-    const patchEnabled = config.turnstilePatch !== false;
-    const patchDir = patchEnabled ? resolveTurnstilePatchDir() : undefined;
+    // Opt-in: only inject the CDP screenX/Y patch when explicitly enabled.
+    const patchEnabled = config.turnstilePatch === true;
     const patchScript = patchEnabled ? resolveTurnstilePatchScript() : undefined;
 
-    if (patchEnabled && !patchDir) {
+    if (patchEnabled && !patchScript) {
         emit(
             "open_signup",
-            "turnstilePatch enabled but resources/turnstilePatch was not found; continuing without the CDP screenXY patch",
+            "turnstilePatch enabled but resources/turnstilePatch/script.js was not found; continuing without the CDP screenXY patch",
         );
     }
 
-    // docs/问题.md #1: Playwright's headless default is chrome-headless-shell,
-    // which cannot load MV3 extensions and is where the real headless run
-    // stalled. Force full Chromium before launching.
     disableHeadlessShell();
     emit("open_signup", `set ${HEADLESS_SHELL_ENV}=0 (launch full Chromium, not chrome-headless-shell)`);
 
     const userDataDir = await mkdtemp(path.join(tmpdir(), "auto-reg-chromium-"));
-    const plan = planChromiumLaunch(headed, patchDir);
-    if (plan.loadExtension && patchDir) {
-        emit(
-            "open_signup",
-            `headed: loading turnstilePatch MV3 extension from ${patchDir} ` +
-                "(--load-extension + --disable-extensions-except, with ignoreDefaultArgs:['--disable-extensions'])",
-        );
-    } else if (patchDir && !headed) {
-        emit(
-            "open_signup",
-            "headless: NOT passing --load-extension — headless Chromium keeps --disable-extensions " +
-                "so the two flags fight (docs/问题.md #2); injecting script.js via addInitScript only " +
-                "— Turnstile usually still needs --headed",
-        );
-    }
+    const plan = planChromiumLaunch();
 
     try {
         const context = await playwright.chromium.launchPersistentContext(userDataDir, {
             headless: !headed,
+            // Always empty: we never --load-extension the MV3 build (Cloudflare
+            // rejects it as an incompatible extension, docs/问题.md).
             args: plan.args,
-            // In headed mode this strips the default --disable-extensions so the
-            // --load-extension flag above is not a no-op. In headless it is
-            // undefined, so Playwright keeps its defaults.
             ignoreDefaultArgs: plan.ignoreDefaultArgs,
             viewport: { width: 1280, height: 800 },
         });
 
         if (patchScript) {
             await context.addInitScript({ path: patchScript });
-            emit("open_signup", "injected turnstilePatch script.js via addInitScript");
+            emit(
+                "open_signup",
+                "injected turnstilePatch script.js via addInitScript (opt-in; extension NOT loaded — CF flags it)",
+            );
         }
 
         return { context, userDataDir };
@@ -259,6 +241,142 @@ export async function looksLikeChallenge(page: Page, hint: string): Promise<bool
         if (html.includes(trimmed.toLowerCase())) return true;
     }
     return false;
+}
+
+/** Reads the page <title> defensively (returns "" when unavailable / on a fake page). */
+async function readPageTitle(page: Page): Promise<string> {
+    const title = (page as { title?: () => Promise<string> }).title;
+    if (typeof title !== "function") return "";
+    try {
+        return (await title.call(page)) ?? "";
+    } catch {
+        return "";
+    }
+}
+
+/** True when the page/context reports itself closed (guards missing isClosed on fakes). */
+export function isPageClosed(page: Page): boolean {
+    const isClosed = (page as { isClosed?: () => boolean }).isClosed;
+    if (typeof isClosed !== "function") return false;
+    try {
+        return isClosed.call(page) === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Classifies a page as a Cloudflare interstitial or an HTTP 429 / rate-limit
+ * response so the caller can fail fast instead of retrying in a tight loop or
+ * waiting the full timeout on a form that will never render. Reads the page
+ * `<title>` and body once and, together with the HTTP status when known,
+ * returns the {@link AutoRegError} code + message to throw, or `null` when the
+ * page looks like a normal sign-up page.
+ *
+ * - HTTP 429 (status) or a rate-limit body → {@link ErrorCodes.RATE_LIMITED}.
+ * - "Just a moment" / "security verification" / "Incompatible browser
+ *   extension" → {@link ErrorCodes.CHALLENGE_REQUIRED}.
+ */
+export async function detectSignupBlock(
+    page: Page,
+    status: number | null = null,
+): Promise<{ code: string; message: string } | null> {
+    const title = (await readPageTitle(page)).toLowerCase();
+    let html = "";
+    try {
+        html = (await page.content()).toLowerCase();
+    } catch {
+        html = "";
+    }
+    const text = `${title}\n${html}`;
+
+    if (status === 429 || RATE_LIMIT_PATTERN.test(text)) {
+        const statusNote = status ? ` (HTTP ${status})` : " (429 / too many requests)";
+        return {
+            code: ErrorCodes.RATE_LIMITED,
+            message:
+                `the sign-up host is rate limiting${statusNote}; ` +
+                "wait before trying again and do not retry in a tight loop",
+        };
+    }
+
+    if (CLOUDFLARE_INTERSTITIAL_PATTERN.test(text)) {
+        const statusNote = status ? ` (HTTP ${status})` : "";
+        return {
+            code: ErrorCodes.CHALLENGE_REQUIRED,
+            message:
+                `Cloudflare interstitial detected${statusNote} ` +
+                '("Just a moment" / security verification / incompatible browser extension): ' +
+                "disable the turnstilePatch extension (Cloudflare flags a --load-extension MV3 " +
+                "extension as an incompatible browser extension), wait if the response is HTTP 429, " +
+                "and do not retry in a tight loop",
+        };
+    }
+
+    return null;
+}
+
+/**
+ * Throws immediately when {@link detectSignupBlock} classifies the page as a
+ * Cloudflare interstitial or a 429 rate-limit response. No polling — these are
+ * hard stops (the operator must intervene / back off).
+ */
+export async function throwIfSignupBlocked(
+    page: Page,
+    status: number | null,
+    stage: RegisterStage,
+    emit: (stage: RegisterStage, message: string) => void,
+): Promise<void> {
+    const block = await detectSignupBlock(page, status);
+    if (!block) return;
+    emit("challenge", block.message);
+    throw new AutoRegError(stage, block.code, block.message);
+}
+
+/**
+ * Fast-fail guard run *before* `page.fill(first_name, …)`.
+ *
+ * Playwright's `page.fill` waits the full `timeoutMs` (120s) when the selector
+ * never appears — that is the "hang" seen when Cloudflare serves an interstitial
+ * instead of the sign-up form, or when the page/browser has closed. This checks
+ * the locator count once and, when it is 0, classifies the cause and throws at
+ * once instead of blocking for the full timeout:
+ *
+ * - page/context closed → {@link ErrorCodes.BROWSER_CLOSED}
+ * - CF interstitial / 429 → {@link ErrorCodes.CHALLENGE_REQUIRED} / {@link ErrorCodes.RATE_LIMITED}
+ * - otherwise → {@link ErrorCodes.SELECTOR}
+ */
+export async function ensureFirstNameReady(
+    page: Page,
+    selector: string,
+    stage: RegisterStage,
+    emit: (stage: RegisterStage, message: string) => void,
+): Promise<void> {
+    let count = 0;
+    try {
+        count = await page.locator(selector).count();
+    } catch {
+        count = 0;
+    }
+    if (count > 0) return;
+
+    if (isPageClosed(page)) {
+        throw new AutoRegError(
+            stage,
+            ErrorCodes.BROWSER_CLOSED,
+            `the page closed before the ${selector} field rendered; ` +
+                "failing fast (Cloudflare may have torn the tab down)",
+        );
+    }
+
+    await throwIfSignupBlocked(page, null, stage, emit);
+
+    throw new AutoRegError(
+        stage,
+        ErrorCodes.SELECTOR,
+        `the ${selector} field was not found and the page is not a known interstitial; ` +
+            "failing fast instead of waiting the full timeout (the sign-up form did not render)",
+    );
 }
 
 /**
@@ -375,10 +493,11 @@ async function fillOtp(page: Page, selector: string, code: string): Promise<void
 }
 
 /**
- * Real registration engine driven by Playwright/Chromium. Fills the signup
- * form, applies the packaged turnstilePatch CDP screenXY fix, still treats
- * unresolved challenges and phone verification as hard failures, enters the
- * emailed code and finally extracts the session token from the
+ * Real registration engine driven by Playwright/Chromium. Fails fast on a
+ * Cloudflare interstitial / HTTP 429 after navigation, fills the signup form
+ * (optionally with the opt-in turnstilePatch CDP screenXY init script), still
+ * treats unresolved challenges and phone verification as hard failures, enters
+ * the emailed code and finally extracts the session token from the
  * `WorkosCursorSessionToken` cookie.
  */
 export class BrowserEngine implements RegisterEngine {
@@ -404,9 +523,19 @@ export class BrowserEngine implements RegisterEngine {
             const page = context.pages()[0] ?? (await context.newPage());
 
             emit("open_signup", `opening ${config.signupUrl}`);
-            await page.goto(config.signupUrl, { waitUntil: "domcontentloaded", timeout });
+            const response = await page.goto(config.signupUrl, {
+                waitUntil: "domcontentloaded",
+                timeout,
+            });
+            // Fail fast on a Cloudflare interstitial or an HTTP 429 before we
+            // ever try to fill a form that will not be there (docs/问题.md).
+            const status = typeof response?.status === "function" ? response.status() : null;
+            await throwIfSignupBlocked(page, status, "open_signup", emit);
 
             emit("submit_profile", `filling profile for ${identity.email}`);
+            // Before filling: if first_name is absent (count 0), classify why and
+            // fail fast — do not let page.fill block for the full timeoutMs.
+            await ensureFirstNameReady(page, selectors.firstName, "submit_profile", emit);
             await page.fill(selectors.firstName, identity.firstName, { timeout });
             await page.fill(selectors.lastName, identity.lastName, { timeout });
             await page.fill(selectors.email, identity.email, { timeout });

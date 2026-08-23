@@ -41,9 +41,11 @@ npm run auto-reg:install
 ```
 
 - 真实注册（非 dry-run）时才需要上面的 Playwright / Chromium 与可访问的邮箱。**dry-run 完全离线，不需要安装 Chromium 也能跑通流水线形状。**
-- **turnstilePatch（默认开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的 MV3 扩展（`resources/turnstilePatch`）。只修补 CDP 下 `screenX/screenY` 指纹（getter：`clientX + offset`），**不是验证码求解器**。
-  - **有头（真实注册的默认路径）**：用 `--load-extension` 加载扩展（并去掉 Playwright 默认的 `--disable-extensions`），等同 vendor 里 DrissionPage `add_extension`。**真实注册（非 dry-run）默认自动 headed**，无需显式传 `--headed`。
-  - **无头（仅 `--headless` 强制时）**：引擎启动前会自动设置 `PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL=0`，强制使用完整 Chromium——`chrome-headless-shell` **无法加载 MV3 扩展**，正是之前真实无头运行卡死的根因（不是「补丁没拷进来」）。即便换成完整 Chromium，无头下也不会加载扩展，只用 `addInitScript` 注入 `script.js`；且 Turnstile 在无头下没有窗口可供人工点选，会在 `challenge` 阶段以 `CHALLENGE_REQUIRED` 失败。
+- **turnstilePatch（默认关闭，需显式开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的补丁（`resources/turnstilePatch`）。只修补 CDP 下 `screenX/screenY` 指纹（getter：`clientX + offset`），**不是验证码求解器**。
+  - **为什么默认关闭**：把它当作 MV3 扩展用 `--load-extension` 加载时，`authenticator.cursor.sh/sign-up` 的 Cloudflare 拦截页会把它判定为 **“Incompatible browser extension or network configuration”**，直接卡在 “Just a moment…” 拦截页、拿不到 `first_name` 表单。因此本包**不再用 `--load-extension` 加载扩展**（有头、无头都不加载）。
+  - **开启后的行为**：`turnstilePatch: true` 时，只把 `script.js` 以 `addInitScript` 注入页面（普通页面脚本，不是被加载的扩展，Cloudflare 不会因此判定为不兼容扩展）。仍**不是**验证码求解器，未过的人机验证照样失败或等待人工。
+  - **无头**：引擎启动前会设置 `PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL=0`，强制使用完整 Chromium（`chrome-headless-shell` 是之前真实无头运行卡死的二进制、且更易被识别为自动化）。Turnstile 在无头下没有窗口可供人工点选，会在 `challenge` 阶段以 `CHALLENGE_REQUIRED` 失败。
+- **Cloudflare 拦截页 / 限流的快速失败**：`page.goto` 之后若命中 Cloudflare 拦截页（标题 / 文案含 “Just a moment”、“security verification”、“Incompatible browser extension”）会**立即**以 `CHALLENGE_REQUIRED` 失败，提示关闭 turnstilePatch 扩展、HTTP 429 时先等待、**不要在紧循环里重试**；若返回 **HTTP 429** 或页面显示限流，则以独立的 `RATE_LIMITED` 失败。填写 `first_name` 前若定位数为 0，会先判定是拦截页 / 页面已关闭并**立即失败**，而不是干等满 `timeoutMs`。
 
 ## 快速开始（dry-run）
 
@@ -81,7 +83,7 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 | `count` | 注册数量（整数，`>= 1`） |
 | `dryRun` | `true` 走离线 dry-run 引擎；也可用 `--dry-run` 覆盖 |
 | `headed` | 浏览器是否有头（可见）。**真实注册默认自动 headed**；`--headed` / `--headless` 可覆盖 |
-| `turnstilePatch` | **默认 `true`**：加载 `resources/turnstilePatch`（CDP screenX/Y 补丁）。不是验证码求解器 |
+| `turnstilePatch` | **默认 `false`**（需显式开启）：开启后仅以 `addInitScript` 注入 `resources/turnstilePatch/script.js`（CDP screenX/Y 补丁），**不会**用 `--load-extension` 加载扩展（Cloudflare 会把加载的扩展判定为不兼容扩展）。不是验证码求解器 |
 | `timeoutMs` | 单步超时（毫秒，`> 0`） |
 | `signupUrl` | 注册页地址 |
 | `email` | 邮箱 / 收码配置，见下 |
