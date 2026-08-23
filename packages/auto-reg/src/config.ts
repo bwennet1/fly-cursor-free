@@ -10,6 +10,8 @@ export const ENV_KEYS = {
     tempmailPin: "AUTO_REG_TEMPMAIL_PIN",
     domain: "AUTO_REG_DOMAIN",
     vaultPassword: "AUTO_REG_VAULT_PASSWORD",
+    chromePath: "AUTO_REG_CHROME_PATH",
+    playwrightChannel: "AUTO_REG_PLAYWRIGHT_CHANNEL",
 } as const;
 
 export const DEFAULT_SIGNUP_URL = "https://authenticator.cursor.sh/sign-up";
