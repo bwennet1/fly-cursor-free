@@ -133,7 +133,13 @@ export function classifyPageBlock(html: string, title = "", status?: number): Pa
     const blob = `${title}\n${html}`;
     if (status === 429 || /too many requests/i.test(blob)) return "rate_limit";
     if (/incompatible browser extension/i.test(blob)) return "incompatible_extension";
-    if (/just a moment|performing security verification/i.test(blob)) return "interstitial";
+    if (
+        /just a moment|performing security verification|protect against malicious bots|verifies you are not a bot/i.test(
+            blob,
+        )
+    ) {
+        return "interstitial";
+    }
     return "ok";
 }
 
@@ -155,8 +161,9 @@ export function pageBlockError(kind: PageBlockKind, stage: RegisterStage = "open
     return new AutoRegError(
         stage,
         ErrorCodes.CHALLENGE_REQUIRED,
-        "Cloudflare interstitial (Just a moment / security verification) — form fields are not present; " +
-            "this is not solved automatically. If you already hit 429, wait. Do not tight-loop register.",
+        "Cloudflare interstitial (Performing security verification / malicious bots) — " +
+            "the signup form is not on this page. This is not solved automatically. " +
+            "Wait after 429; do not tight-loop register.",
     );
 }
 

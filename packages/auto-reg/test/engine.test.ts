@@ -245,6 +245,12 @@ test("classifyPageBlock distinguishes 429, incompatible extension, and Just a mo
     assert.equal(classifyPageBlock("", "", 429), "rate_limit");
     assert.equal(classifyPageBlock("Incompatible browser extension"), "incompatible_extension");
     assert.equal(classifyPageBlock("", "Just a moment..."), "interstitial");
+    assert.equal(
+        classifyPageBlock(
+            "This website uses a security service to protect against malicious bots. This page is displayed while the website verifies you are not a bot.",
+        ),
+        "interstitial",
+    );
     assert.equal(classifyPageBlock("<h1>Create your account</h1>"), "ok");
 });
 
