@@ -1,0 +1,9 @@
+{
+  "defaultHubUrl": "http://127.0.0.1:8765",
+  "autoStartupRotate": true,
+  "productDisplayName": "Relay",
+  "productTagline": "账号切换助手（本地 Hub）",
+  "supportUrl": "",
+  "purchaseUrl": "",
+  "enableOpsTools": false
+}

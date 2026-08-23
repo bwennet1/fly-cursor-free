@@ -10,6 +10,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AccountManagement: typeof import('./components/AccountManagement.vue')['default']
     BackupSettingsDialog: typeof import('./components/BackupSettingsDialog.vue')['default']
+    CursorAutoGuiPanel: typeof import('./components/CursorAutoGuiPanel.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCard: typeof import('element-plus/es')['ElCard']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']

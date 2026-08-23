@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cursor 设备标识生成器</title>
+    <style>
+        body {
+            font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%);
+            color: #d6d6dd;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            flex-direction: column;
+        }
+
+        .container {
+            background: rgba(44, 44, 44, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            width: 85%;
+            max-width: 800px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .container:hover {
+            transform: translateY(-5px);
+        }
+
+        h1 {
+            color: white;
+            margin-bottom: 25px;
+            font-size: 1.8em;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(45deg, #fff, #d6d6dd);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+        }
+
+        sup {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            color: #aaa;
+            display: inline-block;
+            margin-bottom: 15px;
+        }
+
+        .json-block {
+            background-color: rgba(30, 30, 30, 0.95);
+            color: #d6d6dd;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: "Fira Code", "Cascadia Code", monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin: 15px 0;
+            overflow-x: auto;
+            max-width: 100%;
+            text-align: left;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        button {
+            background: linear-gradient(45deg, #2ea043, #347d39);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            margin: 15px 0;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(46, 160, 67, 0.2);
+        }
+
+        button:hover {
+            background: linear-gradient(45deg, #3ab54d, #3b8b40);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(46, 160, 67, 0.3);
+        }
+
+        button:active {
+            transform: scale(0.95) translateY(0);
+        }
+
+        .important {
+            color: #ffd700;
+            font-weight: bold;
+            background: rgba(255, 215, 0, 0.1);
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.2);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(255, 215, 0, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(255, 215, 0, 0);
+            }
+        }
+
+        .tip {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .tip p {
+            margin: 12px 0;
+            line-height: 1.5;
+        }
+
+        .tip code,
+        .tip .path {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-family: "Fira Code", "Cascadia Code", monospace;
+            color: #f0f0f0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .github-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(45deg, #333, #444);
+            color: #fff;
+            padding: 12px 25px;
+            border-radius: 20px;
+            text-decoration: none;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            margin: 25px auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: fit-content;
+        }
+
+        .github-btn:hover {
+            background: linear-gradient(45deg, #444, #555);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .github-btn:active {
+            transform: scale(0.95);
+        }
+
+        .github-btn img {
+            width: 24px;
+            margin-right: 12px;
+            border-radius: 50%;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+        }
+
+        a {
+            color: #7ee787;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        a:hover {
+            color: #2ea043;
+            background: rgba(126, 231, 135, 0.1);
+        }
+
+        .important a {
+            color: #ffd700;
+            font-weight: bold;
+        }
+
+        .important a:hover {
+            background: rgba(255, 215, 0, 0.15);
+            color: #ffed4a;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Cursor Pro Trial 续用工具</h1>
+
+        <div class="tip">
+            <p>
+                <strong>方法一（推荐）：完全卸载重装</strong>
+            </p>
+            <p>1. 下载 <a href="https://geekuninstaller.com/download/" target="_blank">Geek.exe 卸载工具（免费）</a></p>
+            <p>2. 完全卸载 Cursor 应用程序</p>
+            <p>3. 重新安装 Cursor 应用程序（官网自行下载）</p>
+            <p>4. 启动 Cursor 并使用<strong>新账户</strong>登录</p>
+        </div>
+
+        <p class="important">
+            ⚠️ 新账户注册问题：如果注册不上可以尝试不同IP。
+        </p>
+        <p class="important">
+            自用超一年亲测速度快且稳定好用 <a href="https://flowercloud.net/aff.php?aff=7344" target="_blank">推荐链接(128元/年)</a>
+        </p>
+
+        <div class="tip">
+            <p>💾 建议在删除前备份cursor原配置等相关文件</p>
+            <p>🔄 mac平台也可以参考上述方法，使用相关软件完全卸载，然后重新安装</p>
+        </div>
+
+        <p class="important">
+            如果不想使用上述方法，可以考虑：<br>
+            请不要闲鱼上购买，可能都是github上的项目，比如这个<a href="https://github.com/chengazhen/cursor-auto-free" target="_blank">cursor-auto-free</a> (需要动手能力)<br>
+            或者 <a href="https://github.com/Nikitosshow/cursor-help" target="_blank">cursor-help</a>
+        </p>
+
+        <a href="https://github.com/aigem/cursor-pro-trial" class="github-btn" target="_blank">
+            <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="GitHub" />
+            在 GitHub 上查看(点个星星呗)
+        </a>
+    </div>
+</body>
+
+</html>

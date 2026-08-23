@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: 'Override core.lock coreRef (optional)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.repository == 'lens68/lens-cursor-free'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: win
+            mac_arch: ''
+          - runner: macos-latest
+            platform: mac
+            mac_arch: arm64
+          - runner: macos-latest
+            platform: mac
+            mac_arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: lens-cursor-free
+
+      - name: Read core.lock.json
+        id: core_lock
+        shell: bash
+        working-directory: lens-cursor-free
+        run: |
+          REF="${{ github.event.inputs.core_ref }}"
+          if [ -z "$REF" ]; then
+            REF=$(node -e "console.log(JSON.parse(require('fs').readFileSync('core.lock.json','utf8')).coreRef)")
+          fi
+          if [ "$REF" = "0000000000000000000000000000000000000000" ]; then
+            echo "::error::core.lock.json has placeholder coreRef — run update-core-lock.mjs"
+            exit 1
+          fi
+          echo "core_ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: lens68/lens-cursor-free-core
+          ref: ${{ steps.core_lock.outputs.core_ref }}
+          path: lens-cursor-free-core
+          ssh-key: ${{ secrets.RELAY_CORE_DEPLOY_KEY }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install deps, inject config, build and dist (${{ matrix.platform }}${{ matrix.mac_arch && format(' {0}', matrix.mac_arch) || '' }})
+        env:
+          BUILD_CONFIG_JSON: ${{ secrets.BUILD_CONFIG_JSON }}
+          RELAY_CORE_PATH: ${{ github.workspace }}/lens-cursor-free-core
+          RELAY_DIST_PLATFORM: ${{ matrix.platform }}
+          RELAY_MAC_ARCH: ${{ matrix.mac_arch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: lens-cursor-free
+        run: |
+          set -euxo pipefail
+          echo "::group::npm ci"
+          npm ci
+          echo "::endgroup::"
+          node scripts/write-build-config-from-secret.mjs
+          npm run icon
+          echo "::group::link-core"
+          node scripts/link-core.mjs
+          echo "::endgroup::"
+          node scripts/require-local-core.mjs
+          npm run build
+          npm test
+          echo "::group::electron-builder (${{ matrix.platform }} ${{ matrix.mac_arch }})"
+          node scripts/run-dist-prod.mjs --${{ matrix.platform }}
+          echo "::endgroup::"
+          ls -la release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relay-${{ matrix.platform }}${{ matrix.mac_arch && format('-{0}', matrix.mac_arch) || '' }}
+          path: |
+            lens-cursor-free/release/Relay-Setup-*.exe
+            lens-cursor-free/release/Relay-*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.repository == 'lens68/lens-cursor-free'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
