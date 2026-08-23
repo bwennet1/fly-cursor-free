@@ -46,8 +46,10 @@ cursor-auto-gui 是一个独立的 Python（PySide6）桌面应用，不参与 F
 也可以使用本仓库提供的便捷脚本（脚本位于本仓库 `scripts/` 目录，不属于上游代码）：
 
 ```bash
-./scripts/setup-cursor-auto-gui.sh   # 安装依赖
-./scripts/run-cursor-auto-gui.sh    # 启动程序
+./scripts/setup-cursor-auto-gui.sh   # 安装依赖（macOS / Linux）
+./scripts/run-cursor-auto-gui.sh    # 启动程序（macOS / Linux）
+scripts\setup-cursor-auto-gui.cmd    # 安装依赖（Windows）
+scripts\run-cursor-auto-gui.cmd     # 启动程序（Windows）
 ```
 
 或使用 npm scripts：

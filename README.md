@@ -78,7 +78,10 @@ python3 vendor/cursor-auto-gui/main.py
 或使用便捷脚本 / npm scripts：
 
 ```bash
+# macOS / Linux
 ./scripts/setup-cursor-auto-gui.sh && ./scripts/run-cursor-auto-gui.sh
+# Windows
+scripts\setup-cursor-auto-gui.cmd && scripts\run-cursor-auto-gui.cmd
 # 等价于
 npm run auto-gui:setup && npm run auto-gui
 ```

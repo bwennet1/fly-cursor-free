@@ -176,8 +176,11 @@
                     </div>
 
                     <p class="intro-text hint-text">
-                        也可以使用仓库提供的脚本：<code>./scripts/setup-cursor-auto-gui.sh</code> 与
-                        <code>./scripts/run-cursor-auto-gui.sh</code>，或
+                        也可以使用仓库提供的脚本：macOS / Linux 用
+                        <code>./scripts/setup-cursor-auto-gui.sh</code> 与
+                        <code>./scripts/run-cursor-auto-gui.sh</code>；Windows 用
+                        <code>scripts\setup-cursor-auto-gui.cmd</code> 与
+                        <code>scripts\run-cursor-auto-gui.cmd</code>；或
                         <code>npm run auto-gui:setup</code> / <code>npm run auto-gui</code>。
                     </p>
                 </el-card>
