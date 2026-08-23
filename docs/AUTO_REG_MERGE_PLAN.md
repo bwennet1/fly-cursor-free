@@ -120,3 +120,13 @@ dry-run 可闭环写入账号库 sink（原子写、0600）。真实浏览器路
 - 不要把 13 个 vendor 编译进同一个 Electron 安装包。
 - 不要在本仓库「改一改 cursor-auto-free 再发布」。
 - 不要下载运行 XC-Cursor / YCursor 外链二进制来「补齐源码」。
+
+## 8. 运行期备注（runtime notes）
+
+- Node.js **≥ 22**：用内置 TypeScript 类型擦除直接跑 `.ts`，无需编译步骤。
+- 真实注册**默认有头（headed）**；`--headless` 可强制无头，但无头下几乎必然卡在人机验证。
+- 引擎设置 `PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL=0`，让默认有头模式跑在完整 Chromium 上。
+- 无头（`chrome-headless-shell`）**无法加载 MV3 扩展**；turnstilePatch 在无头下只 `addInitScript` 注入 `script.js`。
+- turnstilePatch 是 CDP 鼠标事件 `screenX/screenY` 坐标修正，**不是验证码求解器**。
+- dry-run 未设 `AUTO_REG_VAULT_PASSWORD` 时**以明文落盘并打印警告**；真实注册保持账号库加密。
+- 失败结果也可落盘，仅记录**不含密码 / token 的失败元数据**（email、阶段、错误摘要）。

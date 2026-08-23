@@ -41,9 +41,10 @@ npm run auto-reg:install
 ```
 
 - 真实注册（非 dry-run）时才需要上面的 Playwright / Chromium 与可访问的邮箱。**dry-run 完全离线，不需要安装 Chromium 也能跑通流水线形状。**
-- **turnstilePatch（默认开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的 MV3 扩展（`resources/turnstilePatch`）。只修补 CDP 下 `screenX/screenY` 指纹（getter：`clientX + offset`），**不是验证码求解器**。
-  - **有头（`--headed`）**：用 `--load-extension` 加载扩展（并去掉 Playwright 默认的 `--disable-extensions`），等同 vendor 里 DrissionPage `add_extension`。
-  - **无头**：Playwright 走 `chrome-headless-shell`，**无法加载 MV3 扩展**；只会 `addInitScript` 注入 `script.js`。Turnstile 在无头下通常仍过不了——这是卡住的根因，不是「补丁没拷进来」。
+- **真实注册默认有头（headed）**：真实注册（非 dry-run）默认以**有头（可见窗口）**模式运行，加 `--headless` 才强制无头。为了让默认的有头模式跑在**完整 Chromium**（而非 `chrome-headless-shell`）上，引擎会设置环境变量 `PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL=0`。
+- **turnstilePatch（默认开启）**：打包了与 [JiuZX/Cursor-Register](https://github.com/JiuZX/Cursor-Register) / [TheFalloutOf76](https://github.com/TheFalloutOf76/CDP-bug-MouseEvent-.screenX-.screenY-patcher) / [Xewdy444](https://github.com/Xewdy444/CDP-bug-MouseEvent-.screenX-.screenY-patcher) 同源思路的 MV3 扩展（`resources/turnstilePatch`）。它只修补 CDP 下的 `screenX/screenY` 鼠标事件坐标指纹（getter：`clientX + offset`）——是**一处 CDP 鼠标事件坐标修正，不是验证码求解器**。
+  - **有头（默认）**：用 `--load-extension` 加载扩展（并去掉 Playwright 默认的 `--disable-extensions`），等同 vendor 里 DrissionPage `add_extension`。
+  - **无头（`--headless`）**：Playwright 走 `chrome-headless-shell`，**无法加载 MV3 扩展**；只会用 `addInitScript` 注入 `script.js`。Turnstile 在无头下通常仍过不了——这是卡住的根因，不是「补丁没拷进来」。
 
 ## 快速开始（dry-run）
 
@@ -68,7 +69,7 @@ node --experimental-strip-types src/cli.ts register --dry-run
 
 dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例配置为当前目录下的 `accounts.json`）。控制台只会打印每个账号的 **email 和 ok/stage**，不会打印密码或 token。
 
-> 账号库[默认加密](#账号库加密)，而 dry-run 也会真实写入 sink，所以**即便只是 dry-run，也需要先 `export AUTO_REG_VAULT_PASSWORD=...`**（否则会在配置校验阶段报错）。
+> 账号库[默认加密](#账号库加密)，而 dry-run 也会真实写入 sink。**dry-run 若未设置 `AUTO_REG_VAULT_PASSWORD`，不会中断，而是以明文落盘并打印一条醒目的警告**；如需加密落盘，先 `export AUTO_REG_VAULT_PASSWORD=...` 再跑。真实注册请始终保持加密（见[账号库加密](#账号库加密)）。
 
 ## 配置
 
@@ -80,7 +81,7 @@ dry-run 成功后，账号会写入配置里的 `output.accountsPath`（示例�
 |---|---|
 | `count` | 注册数量（整数，`>= 1`） |
 | `dryRun` | `true` 走离线 dry-run 引擎；也可用 `--dry-run` 覆盖 |
-| `headed` | 浏览器是否有头（可见），也可用 `--headed` 覆盖 |
+| `headed` | 浏览器是否有头（可见）。**真实注册默认有头**；用 `--headless` 可强制无头 |
 | `turnstilePatch` | **默认 `true`**：加载 `resources/turnstilePatch`（CDP screenX/Y 补丁）。不是验证码求解器 |
 | `timeoutMs` | 单步超时（毫秒，`> 0`） |
 | `signupUrl` | 注册页地址 |
@@ -214,7 +215,8 @@ auto-reg register [options]
   --config <path>   配置文件路径。缺省时用 examples/config.example.json（包根目录或当前目录）。
   --count <n>       本次注册数量（覆盖配置）。
   --dry-run         离线演练：不启动真实浏览器、不改动任何状态。
-  --headed          浏览器有头（可见）运行，而非无头。
+  --headless        强制无头运行。真实注册默认有头，加此开关才走无头；无头下 chrome-headless-shell 无法加载 turnstilePatch 扩展，几乎必然卡在人机验证。
+  --headed          显式有头（可见）运行——真实注册的默认行为。
   -h, --help        显示帮助。
 ```
 
@@ -229,21 +231,22 @@ auto-reg register [options]
 - 账号写入 `output.accountsPath` 指向的文件，采用 **append**：读出现有数组 → 追加 → 写临时文件 → `rename` 覆盖，保证是**原子写**，中途崩溃不会留下半截文件。
 - 该文件是本地账号库，会包含 **密码与 session token**。文件以 `0600` 权限创建；请自行妥善保管，并加入 `.gitignore`，**切勿提交或上传**。
 - CLI **只在控制台打印 email 与 ok/stage**；密码、验证码、token 只落盘、绝不打印。进度行只显示阶段名（`stage`），不回显引擎的自由文本消息，以免意外泄露。
+- **失败也可落盘**：注册失败的结果同样可以持久化，但**只记录不含敏感信息的失败元数据**（email、失败所处 `stage`、错误摘要），不写入密码 / 验证码 / session token，便于事后统计与排查。
 - **绝不要把 session token 发给任何第三方服务。**
 
 ### 账号库加密
 
 账号库**默认加密落盘**：`output.encrypt` 默认为 `true`，采用 **AES-256-GCM**，密钥由口令经 **scrypt** 派生（每次写入用随机 salt / IV，落盘为一个自描述的 envelope）。口令通过环境变量 `AUTO_REG_VAULT_PASSWORD` 注入，**绝不写进配置文件**。
 
-因此**只要加密开着（默认），就必须先设置 `AUTO_REG_VAULT_PASSWORD` 再运行**：
+因此**真实注册时，只要加密开着（默认），就必须先设置 `AUTO_REG_VAULT_PASSWORD` 再运行**（dry-run 例外，见下）：
 
 ```bash
 export AUTO_REG_VAULT_PASSWORD='一段足够强的口令'
 npm run register -- --config config.local.json
 ```
 
-- 加密开启却没有口令会直接报 `output.encrypt is enabled but no vault password is set`。
-- **dry-run 同样需要**：dry-run 也会真实写入 sink，所以在默认加密下 **dry-run 也必须（至少强烈建议）设置 `AUTO_REG_VAULT_PASSWORD`**，否则会在校验阶段就报错。
+- **真实注册**：加密开启却没有口令会直接报 `output.encrypt is enabled but no vault password is set`——真实注册必须先设置 `AUTO_REG_VAULT_PASSWORD`。
+- **dry-run 例外**：dry-run 也会真实写入 sink，但**未设置 `AUTO_REG_VAULT_PASSWORD` 时不会报错中断，而是以明文落盘并打印一条醒目的警告**；要让 dry-run 也走加密落盘，同样先设置该环境变量。
 - 加密后的账号库无法直接用文本编辑器查看，需用同一口令解密（GCM 校验：口令错或文件被篡改都会解密失败）；**口令丢失等于账号库不可恢复，请务必备份口令**。
 - 如需明文落盘，把 `output.encrypt` 显式设为 `false`（不推荐）。
 
