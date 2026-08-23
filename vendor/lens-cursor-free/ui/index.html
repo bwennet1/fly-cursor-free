@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Relay</title>
+    <link rel="stylesheet" href="styles/tokens.css" />
+    <link rel="stylesheet" href="styles/layout.css" />
+    <link rel="stylesheet" href="styles/components.css" />
+  </head>
+  <body class="app-shell">
+    <header class="app-header">
+      <img class="app-logo" src="assets/logo.svg" alt="" width="40" height="40" />
+      <div class="app-header-text">
+        <h1 class="app-title">Relay</h1>
+        <p class="app-tagline" id="appTagline">账号切换助手</p>
+      </div>
+    </header>
+
+    <div id="versionBanner" class="alert alert-warning hidden">
+      <span id="versionBannerText"></span>
+      <button type="button" id="btnVersionDownload" class="btn-secondary hidden" style="margin-top:8px;width:auto">打开下载页</button>
+    </div>
+
+    <div
+      id="statusHero"
+      class="status-hero status-hero--idle"
+      role="status"
+      aria-live="polite"
+      aria-describedby="statusSub"
+    >
+      请先验证许可证
+    </div>
+    <p id="statusSub" class="status-sub hidden" aria-live="polite"></p>
+
+    <a id="supportLink" class="support-link hidden" href="#">需要帮助？联系客服</a>
+
+    <section id="purchaseCta" class="purchase-cta hidden" aria-label="购买许可证">
+      <p id="purchaseCtaHint" class="purchase-cta__hint"></p>
+      <button type="button" id="btnPurchase" class="btn-purchase"></button>
+    </section>
+
+    <main class="card-main">
+      <section id="quotaCard" class="quota-card hidden" aria-label="换号配额">
+        <div class="quota-card__grid">
+          <div class="quota-card__cell">
+            <span class="quota-card__label" id="quotaCycleLabel">周期换号</span>
+            <span id="quotaCycle">—</span>
+          </div>
+          <div class="quota-card__cell">
+            <span class="quota-card__label" id="quotaTodayLabel">今日换号</span>
+            <span id="quotaToday">—</span>
+          </div>
+        </div>
+        <p id="quotaExpiry" class="quota-card__expiry hidden"></p>
+      </section>
+
+      <section id="actionZone" class="action-zone">
+        <div id="licenseField" class="field">
+          <label for="license">许可证</label>
+          <input id="license" placeholder="粘贴您的许可证" autocomplete="off" />
+        </div>
+        <div id="licenseBound" class="license-bound hidden">
+          <span id="licenseMasked" class="license-bound__key"></span>
+          <div class="license-bound__actions">
+            <button type="button" id="linkChangeLicense" class="link-btn" title="更换为另一张许可证"></button>
+            <button type="button" id="purchaseLink" class="purchase-link hidden" title="在浏览器中打开购买页"></button>
+          </div>
+        </div>
+        <button type="button" id="btnValidate" class="btn-primary">验证并继续</button>
+        <button type="button" id="btnSwitch" class="btn-secondary" disabled>换号</button>
+        <button type="button" id="btnRetryConsume" class="btn-secondary hidden">重试确认</button>
+        <button type="button" id="linkRevalidate" class="link-btn hidden" title="刷新当前证状态"></button>
+      </section>
+    </main>
+
+    <details class="fold-advanced">
+      <summary>使用说明</summary>
+      <div class="fold-body" id="usageBody"></div>
+    </details>
+
+    <details class="fold-advanced">
+      <summary id="foldQuotaSummary">换号次数说明</summary>
+      <div class="fold-body" id="quotaDetail">—</div>
+    </details>
+
+    <details class="fold-advanced">
+      <summary id="foldAboutSummary">关于</summary>
+      <div class="fold-body"><div id="aboutVersion">加载中…</div></div>
+    </details>
+
+    <details id="logDetails" class="fold-advanced hidden">
+      <summary id="foldLogSummary">遇到问题时可展开</summary>
+      <div class="fold-body"><pre id="log" class="log-panel"></pre></div>
+    </details>
+
+    <details id="ops-tools-panel" class="ops-panel" hidden>
+      <summary>运营工具（仅内部构建）</summary>
+      <p class="ops-banner">此区域仅供运营，普通用户无需使用。</p>
+      <label>服务器地址 <input id="importHubUrl" placeholder="由运营提供" /></label>
+      <label>运营密钥 <input id="importAdminToken" type="password" placeholder="由运营提供" autocomplete="off" /></label>
+      <div class="row2">
+        <label>账号编号（可选）<input id="importAccountId" placeholder="可选" autocomplete="off" /></label>
+        <label>设备编号（可选）<input id="importProfileId" placeholder="可选" autocomplete="off" /></label>
+      </div>
+      <label>邮箱（可选）<input id="importEmail" type="email" placeholder="user@example.com" autocomplete="off" /></label>
+      <label>备注 <input id="importSource" placeholder="来源说明" autocomplete="off" /></label>
+      <button type="button" id="btnImportCapture" class="btn-secondary">① 采集本机（预览）</button>
+      <div class="row2">
+        <button type="button" id="btnImportLoad" class="btn-secondary">从文件加载</button>
+        <button type="button" id="btnImportSave" class="btn-secondary">保存到文件</button>
+      </div>
+      <button type="button" id="btnImportUpload" class="btn-secondary" disabled>② 上传到服务器</button>
+      <p id="importReady" class="hint">请先采集或加载 bundle</p>
+      <pre id="importPreview" class="log-panel"></pre>
+    </details>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/zhangx1aoxi77/ZZXcursor
+Cloned commit SHA: 9c3bec6b3e8fa892505bd06cf2e7499574340e3e
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

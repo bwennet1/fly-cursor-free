@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/Ryan0204/cursor-auto-icloud
+Cloned commit SHA: 0b2a51fb360eb254d16ac021c4bf31a10e97fa90
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

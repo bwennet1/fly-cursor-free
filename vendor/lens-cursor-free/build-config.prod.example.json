@@ -1,0 +1,9 @@
+{
+  "defaultHubUrl": "https://hub.your-domain.com",
+  "autoStartupRotate": true,
+  "productDisplayName": "Relay",
+  "productTagline": "账号切换助手",
+  "supportUrl": "https://your-support-page.example.com",
+  "purchaseUrl": "https://shop.example.com/licenses",
+  "enableOpsTools": false
+}
