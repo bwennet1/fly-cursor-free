@@ -104,6 +104,21 @@ npm run auto-gui:setup && npm run auto-gui
 
 ---
 
+## 本地自动 REG
+
+`packages/auto-reg` 是本仓库**自研的 clean-room 实现**（MIT，TypeScript，Node 22+ 以 `--experimental-strip-types` 直接运行），不是 `vendor/` 里收录的闭源 / CC BY-NC-ND（禁止演绎）项目，未复制其任何代码。快速验证（均不会真正注册）：
+
+```bash
+cd packages/auto-reg && npm test
+cd packages/auto-reg && node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json
+```
+
+正式使用：复制 `examples/config.example.json` 为本地配置 → 填入你的域名与收件邮箱 → 去掉 `--dry-run` 并指向本地配置运行。
+
+注意边界：遇到人机验证需人工在浏览器窗口（headed）手动完成；该 CLI 不做机器码重置；因公开仓不含 Electron 主进程，应用内「注册」页签（`src/renderer/src/components/AutoRegPanel.vue`）只提供命令说明，不能一键运行。
+
+---
+
 ## 💰 赞赏
 
 如果觉得这个项目对你有帮助，鼓励作者持续更新。

@@ -96,11 +96,11 @@
 **M0 — 对照仓（本分支已做）**  
 vendor 浅克隆 + 本计划 + `research/SOURCE_MATRIX.md`。
 
-**M1 — 新仓库脚手架**  
-`auto-reg` CLI：配置校验、一种 IMAP 收码、一种 browser 注册到「提交邮箱」为止（先打通骨架，不追求成功率）。
+**M1 — 新仓库脚手架（已落地 `packages/auto-reg`）**  
+CLI、配置校验、身份生成、IMAP / tempmail.plus / manual 收码、dry-run 引擎、Playwright 浏览器引擎骨架（人机验证仅人工/超时）。
 
-**M2 — 闭环自动 REG**  
-收码 → 取 token → 加密写入本地账号库（用户口令或 OS keychain，**禁止硬编码密钥**）。超时与阶段错误码。
+**M2 — 闭环自动 REG（部分落地）**  
+dry-run 可闭环写入 JSON sink（原子写、0600）。真实浏览器路径：收码 → 填 OTP → 解析会话 cookie。账号库存明文 JSON（权限 0600），尚未做口令派生加密 / OS keychain。
 
 **M3 — 接 FlyCursor**  
 只通过稳定 IPC / 导入 JSON，不把 Python 塞进被 gitignore 的 `src/main`。渲染层已有 Auto GUI 页签，可再加「导入 auto-reg 结果」。

@@ -1,0 +1,41 @@
+{
+    "count": 1,
+    "dryRun": false,
+    "headed": false,
+    "timeoutMs": 120000,
+    "signupUrl": "https://authenticator.cursor.sh/sign-up",
+    "email": {
+        "provider": "imap",
+        "domain": "example.com/mail.example.org",
+        "receivingEmail": "catchall@example.com",
+        "receivingPin": "",
+        "imap": {
+            "host": "imap.example.com",
+            "port": 993,
+            "secure": true,
+            "user": "catchall@example.com",
+            "password": "set-via-AUTO_REG_IMAP_PASSWORD",
+            "mailbox": "INBOX"
+        },
+        "codeRegex": "\\b(\\d{6})\\b",
+        "pollMs": 3000,
+        "pollTimeoutMs": 120000
+    },
+    "identity": {
+        "emailPrefix": "dev.",
+        "localPartLength": 12,
+        "passwordLength": 16
+    },
+    "output": {
+        "accountsPath": "accounts.json"
+    },
+    "selectors": {
+        "firstName": "input[name=\"first_name\"]",
+        "lastName": "input[name=\"last_name\"]",
+        "email": "input[name=\"email\"]",
+        "password": "input[name=\"password\"]",
+        "continueButton": "button[type=\"submit\"]",
+        "otpInputs": "input[autocomplete=\"one-time-code\"]",
+        "challengeHint": "[id*=\"captcha\"], iframe[src*=\"challenge\"]"
+    }
+}
