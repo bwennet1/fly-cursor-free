@@ -1,0 +1,9 @@
+{
+  "name": "@relay/core-api",
+  "version": "0.1.8",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  }
+}

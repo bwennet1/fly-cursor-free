@@ -14,7 +14,13 @@
         "build:mac": "npm run build && electron-builder --mac",
         "build:linux": "npm run build && electron-builder --linux",
         "preview": "electron-builder --dir",
-        "build:win:hash": "yarn build:win && node src/script/inject-hash.cjs && electron-builder --win"
+        "build:win:hash": "yarn build:win && node src/script/inject-hash.cjs && electron-builder --win",
+        "auto-gui": "python3 vendor/cursor-auto-gui/main.py",
+        "auto-gui:setup": "pip3 install -r vendor/cursor-auto-gui/requirements.txt",
+        "auto-reg": "node --experimental-strip-types packages/auto-reg/src/cli.ts",
+        "auto-reg:install": "npm --prefix packages/auto-reg install && npx --prefix packages/auto-reg playwright install chromium",
+        "auto-reg:test": "npm --prefix packages/auto-reg test",
+        "auto-reg:dry-run": "node --experimental-strip-types packages/auto-reg/src/cli.ts register --dry-run --config packages/auto-reg/examples/config.example.json"
     },
     "dependencies": {
         "@electron-toolkit/preload": "^3.0.1",
