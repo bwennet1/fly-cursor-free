@@ -79,6 +79,13 @@ export interface OutputConfig {
     accountsPath: string;
     /** When true, accounts file is AES-256-GCM. Passphrase from AUTO_REG_VAULT_PASSWORD. */
     encrypt: boolean;
+    /**
+     * When true (the default), failed attempts are also appended to the sink so
+     * there is a durable record of what went wrong. Failure records are
+     * scrubbed first: password/sessionToken/code are dropped, leaving only
+     * email/error/stage. Set false to persist successes only.
+     */
+    persistFailures?: boolean;
 }
 
 export interface SelectorConfig {

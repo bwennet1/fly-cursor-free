@@ -139,7 +139,12 @@ test("a failing iteration is recorded but does not stop the rest", async () => {
     assert.match(results[0].error ?? "", /boom/);
     assert.ok(results[1].ok);
     assert.ok(results[2].ok);
-    assert.equal(appended.length, 2);
+    // Failures are persisted too (persistFailures defaults on): 1 failure + 2
+    // successes.
+    assert.equal(appended.length, 3);
+    const failedAppend = appended.find((r) => !r.ok);
+    assert.ok(failedAppend);
+    assert.equal(failedAppend?.identity.email, "user1@example.com");
 });
 
 test("failure while creating an identity yields a placeholder result and continues", async () => {
@@ -187,7 +192,8 @@ test("failure while creating an identity yields a placeholder result and continu
     assert.equal(results[0].identity.email, "");
     assert.equal(results[0].identity.domain, "example.com");
     assert.ok(results[1].ok);
-    assert.equal(appended.length, 1);
+    // The placeholder failure is persisted alongside the later success.
+    assert.equal(appended.length, 2);
 });
 
 test("pipeline events never contain the account password", async () => {
@@ -322,4 +328,82 @@ test("a mailbox without allocateAddress keeps the generated identity email", asy
     assert.ok(results[0].ok);
     assert.equal(results[0].identity.email, "user1@example.com");
     assert.equal(results[0].identity.domain, "example.com");
+});
+
+test("persisted failure records drop password/sessionToken/code, keep email/error/stage", async () => {
+    const { deps, appended } = makeStubDeps({ failEmails: new Set(["user1@example.com"]) });
+
+    const results = await runRegister(makeConfig({ count: 1 }), undefined, deps);
+
+    assert.equal(results.length, 1);
+    const failed = results[0];
+    assert.equal(failed.ok, false);
+    assert.equal(failed.stage, "submit_code");
+    assert.equal(failed.identity.email, "user1@example.com");
+    assert.match(failed.error ?? "", /boom/);
+    // Secrets scrubbed on the returned result.
+    assert.equal(failed.identity.password, "");
+    assert.equal(failed.sessionToken, undefined);
+    assert.equal(failed.code, undefined);
+
+    // ...and on the record handed to the sink.
+    assert.equal(appended.length, 1);
+    const persisted = appended[0];
+    assert.equal(persisted.ok, false);
+    assert.equal(persisted.identity.email, "user1@example.com");
+    assert.equal(persisted.identity.password, "");
+    assert.equal(persisted.sessionToken, undefined);
+    assert.equal(persisted.code, undefined);
+});
+
+test("persistFailures=false keeps failures out of the sink but still reports them", async () => {
+    const { deps, appended } = makeStubDeps({ failEmails: new Set(["user1@example.com"]) });
+
+    const config = makeConfig({ count: 2 });
+    config.output = { ...config.output, persistFailures: false };
+
+    const results = await runRegister(config, undefined, deps);
+
+    assert.equal(results.length, 2);
+    assert.equal(results[0].ok, false);
+    assert.ok(results[1].ok);
+    // Only the successful account is persisted.
+    assert.equal(appended.length, 1);
+    assert.ok(appended.every((r) => r.ok));
+});
+
+test("a sink error while persisting a failure does not mask the original failure", async () => {
+    const deps: Partial<PipelineDeps> = {
+        createIdentity: (config: AutoRegConfig) => ({
+            firstName: "F",
+            lastName: "L",
+            email: `x@${config.email.domain}`,
+            password: "pw",
+            domain: config.email.domain,
+        }),
+        createMailbox: () => ({
+            name: "m",
+            async waitForCode() {
+                return "000000";
+            },
+        }),
+        createEngine: () => ({
+            name: "e",
+            async register() {
+                throw new AutoRegError("submit_profile", "ENGINE", "engine exploded");
+            },
+        }),
+        createSink: () => ({
+            async append() {
+                throw new Error("disk full");
+            },
+        }),
+    };
+
+    const results = await runRegister(makeConfig({ count: 1 }), undefined, deps);
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, false);
+    assert.equal(results[0].stage, "submit_profile");
+    assert.match(results[0].error ?? "", /engine exploded/);
 });

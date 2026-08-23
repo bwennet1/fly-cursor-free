@@ -208,6 +208,39 @@ test("encrypted appends accumulate in order and readAccounts decrypts them", asy
     });
 });
 
+test("failed records are persisted without password/sessionToken/code", async () => {
+    await withTmpDir(async (dir) => {
+        const accountsPath = path.join(dir, "accounts.json");
+        const sink = createJsonSink({ accountsPath });
+
+        await sink.append(
+            makeResult({
+                ok: false,
+                stage: "challenge",
+                error: "challenge required",
+                identity: {
+                    firstName: "Ada",
+                    lastName: "Lovelace",
+                    email: "ada@example.com",
+                    password: "should-not-be-written",
+                    domain: "example.com",
+                },
+                sessionToken: "tok_should_not_be_written",
+                code: "654321",
+            }),
+        );
+
+        const parsed = JSON.parse(await fs.readFile(accountsPath, "utf8"));
+        assert.equal(parsed.length, 1);
+        assert.equal(parsed[0].ok, false);
+        assert.equal(parsed[0].identity.email, "ada@example.com");
+        assert.equal(parsed[0].identity.password, "");
+        assert.equal(parsed[0].sessionToken, undefined);
+        assert.equal(parsed[0].code, undefined);
+        assert.equal(parsed[0].error, "challenge required");
+    });
+});
+
 test("encrypted accounts file keeps mode 0600", async () => {
     await withTmpDir(async (dir) => {
         const accountsPath = path.join(dir, "accounts.json");

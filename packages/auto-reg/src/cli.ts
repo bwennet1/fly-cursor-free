@@ -2,25 +2,35 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { loadConfig, resolveVaultPassword } from "./config.ts";
+import { ENV_KEYS, loadConfig, resolveVaultPassword } from "./config.ts";
 import { runRegister } from "./pipeline.ts";
 import type { AutoRegConfig, OutputConfig, PipelineEvent, RegisterResult } from "./types.js";
 
-interface CliArgs {
+export interface CliArgs {
     command?: string;
     configPath?: string;
     count?: number;
     dryRun: boolean;
     headed: boolean;
+    headless: boolean;
     help: boolean;
     unknown: string[];
 }
 
+/** Minimum supported Node major version (matches package.json "engines"). */
+const MIN_NODE_MAJOR = 22;
+
 const DEFAULT_CONFIG_RELATIVE = path.join("examples", "config.example.json");
 
 async function main(argv: string[]): Promise<void> {
+    const node = checkNodeVersion(process.version);
+    if (!node.ok) {
+        console.error(node.message);
+        process.exit(1);
+    }
+
     const args = parseArgs(argv);
 
     if (args.help) {
@@ -72,11 +82,17 @@ async function main(argv: string[]): Promise<void> {
         return;
     }
 
-    config = applyOverrides(config, args);
+    const overridden = applyOverrides(config, args);
+    config = overridden.config;
+    for (const warning of overridden.warnings) {
+        console.error(`auto-reg: ${warning}`);
+    }
 
-    // Fail fast when the vault passphrase is missing (applies to --dry-run
-    // too, since dry runs persist results). The passphrase is only checked
-    // here — it is never printed and never passed through stdout.
+    // A real run with encryption still requires a passphrase and fails fast
+    // when it is missing. Dry runs no longer reach here with encryption on:
+    // applyOverrides drops output.encrypt for a passphrase-less dry run (with a
+    // warning) so it can proceed writing plaintext. The passphrase is only
+    // checked here — it is never printed and never passed through stdout.
     try {
         resolveVaultPassword(config);
     } catch (err) {
@@ -99,12 +115,49 @@ async function main(argv: string[]): Promise<void> {
 }
 
 /**
- * Progress line printed per pipeline event. Only the stage name is echoed —
- * never the free-form message, which may originate from the engine and could
- * contain a verification code or session token.
+ * Progress line printed per pipeline event: `· <stage>  <safe message>`. The
+ * free-form message may originate from the engine and could carry a
+ * verification code or session token, so it is scrubbed by sanitizeMessage
+ * before it ever reaches the terminal.
  */
 function onEvent(e: PipelineEvent): void {
-    process.stderr.write(`  · ${e.stage}\n`);
+    const safe = sanitizeMessage(e.message);
+    process.stderr.write(safe ? `  · ${e.stage}  ${safe}\n` : `  · ${e.stage}\n`);
+}
+
+/**
+ * Redacts secrets from a progress message so it is safe to print. Removes:
+ *   - JWT-shaped tokens (three base64url segments joined by dots)
+ *   - the value after a `password:`/`password=` marker
+ *   - long token-ish runs (session tokens, API keys, hashes; 20+ chars)
+ *   - standalone 6-digit verification codes
+ * Email addresses survive because their digits/letters are embedded next to
+ * `@`/`.`/`-`, which the code and long-token patterns explicitly exclude.
+ */
+export function sanitizeMessage(message: string): string {
+    return message
+        .replace(/\b[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "[redacted]")
+        .replace(/(password\s*[:=]\s*)(\S+)/gi, "$1[redacted]")
+        .replace(/\b[A-Za-z0-9_-]{20,}\b/g, "[redacted]")
+        .replace(/(?<![\w@.\-])\d{6}(?![\w@.\-])/g, "[redacted]");
+}
+
+/**
+ * Verifies the running Node major version meets {@link MIN_NODE_MAJOR}. Kept
+ * pure (takes the version string) so it is testable; main() passes
+ * process.version and exits 1 on failure.
+ */
+export function checkNodeVersion(version: string = process.version): { ok: boolean; message?: string } {
+    const major = Number.parseInt(version.replace(/^v/, ""), 10);
+    if (!Number.isFinite(major) || major < MIN_NODE_MAJOR) {
+        return {
+            ok: false,
+            message:
+                `auto-reg: 需要 Node ${MIN_NODE_MAJOR} 或更高版本，当前为 ${version}。` +
+                `请升级 Node 后重试（例如 nvm install ${MIN_NODE_MAJOR}）。`,
+        };
+    }
+    return { ok: true };
 }
 
 /**
@@ -128,14 +181,63 @@ function printSummary(results: RegisterResult[], output: OutputConfig): void {
                 : `accounts written to ${output.accountsPath}`,
         );
     }
+    const failed = results.length - succeeded;
+    if (failed > 0 && output.persistFailures !== false) {
+        console.log(`失败记录已写入 ${output.accountsPath}（不含密码 / token）`);
+    }
 }
 
-function applyOverrides(config: AutoRegConfig, args: CliArgs): AutoRegConfig {
+export interface ResolvedOverrides {
+    config: AutoRegConfig;
+    /** User-facing notices to print to stderr (headed/encryption adjustments). */
+    warnings: string[];
+}
+
+/**
+ * Applies CLI overrides on top of the loaded config and resolves two runtime
+ * safeguards:
+ *   - A real registration (not --dry-run) defaults to headed so the browser
+ *     can load the turnstilePatch extension and a human can clear challenges.
+ *     Pass --headless to force headless anyway.
+ *   - A --dry-run without AUTO_REG_VAULT_PASSWORD does not hard-fail: encryption
+ *     is turned off for this run (plaintext, no secrets written to the vault)
+ *     with a warning to set the passphrase before a real run.
+ */
+export function applyOverrides(
+    config: AutoRegConfig,
+    args: CliArgs,
+    env: Record<string, string | undefined> = process.env,
+): ResolvedOverrides {
+    const warnings: string[] = [];
+    const dryRun = args.dryRun ? true : config.dryRun;
+
+    let headed = config.headed;
+    if (!dryRun && !args.headed && !args.headless) {
+        headed = true;
+        warnings.push("真实注册已自动改为 headed，以便加载扩展并人工过人机");
+    } else if (args.headless) {
+        headed = false;
+    } else if (args.headed) {
+        headed = true;
+    }
+
+    let output = config.output;
+    if (dryRun && output.encrypt && !env[ENV_KEYS.vaultPassword]) {
+        output = { ...output, encrypt: false };
+        warnings.push(
+            "dry-run 未设口令，本次明文不落敏感库；正式跑请设 AUTO_REG_VAULT_PASSWORD",
+        );
+    }
+
     return {
-        ...config,
-        count: args.count ?? config.count,
-        dryRun: args.dryRun ? true : config.dryRun,
-        headed: args.headed ? true : config.headed,
+        config: {
+            ...config,
+            count: args.count ?? config.count,
+            dryRun,
+            headed,
+            output,
+        },
+        warnings,
     };
 }
 
@@ -148,8 +250,8 @@ function resolveDefaultConfigPath(): string | undefined {
     return candidates.find((candidate) => existsSync(candidate));
 }
 
-function parseArgs(argv: string[]): CliArgs {
-    const args: CliArgs = { dryRun: false, headed: false, help: false, unknown: [] };
+export function parseArgs(argv: string[]): CliArgs {
+    const args: CliArgs = { dryRun: false, headed: false, headless: false, help: false, unknown: [] };
     const tokens = normalizeArgv(argv);
 
     while (tokens.length > 0) {
@@ -177,6 +279,9 @@ function parseArgs(argv: string[]): CliArgs {
                 break;
             case "--headed":
                 args.headed = true;
+                break;
+            case "--headless":
+                args.headless = true;
                 break;
             default:
                 if (token.startsWith("-")) {
@@ -219,7 +324,10 @@ function printUsage(): void {
             `                    Defaults to ${DEFAULT_CONFIG_RELATIVE} (package root or cwd).`,
             "  --count <n>       Number of accounts to register (overrides config).",
             "  --dry-run         Run without launching a real browser / mutating state.",
+            "                    Without AUTO_REG_VAULT_PASSWORD a dry run writes plaintext.",
             "  --headed          Run the browser engine headed (visible) instead of headless.",
+            "  --headless        Force headless. Real runs default to headed so the",
+            "                    turnstilePatch extension loads and a human can pass the challenge.",
             "  -h, --help        Show this help.",
             "",
             "Registering accounts in bulk usually violates Cursor's Terms of Service.",
@@ -232,7 +340,15 @@ function errMessage(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
 }
 
-main(process.argv.slice(2)).catch((err) => {
-    console.error(`auto-reg: ${errMessage(err)}`);
-    process.exitCode = 1;
-});
+/** True when this module is the process entry point (not imported by a test). */
+function invokedAsScript(): boolean {
+    const entry = process.argv[1];
+    return typeof entry === "string" && import.meta.url === pathToFileURL(entry).href;
+}
+
+if (invokedAsScript()) {
+    main(process.argv.slice(2)).catch((err) => {
+        console.error(`auto-reg: ${errMessage(err)}`);
+        process.exitCode = 1;
+    });
+}

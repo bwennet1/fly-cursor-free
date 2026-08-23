@@ -38,6 +38,7 @@ export function defaultConfig(): AutoRegConfig {
         output: {
             accountsPath: "accounts.json",
             encrypt: true,
+            persistFailures: true,
         },
         selectors: {
             firstName: 'input[name="first_name"]',

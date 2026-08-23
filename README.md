@@ -113,19 +113,18 @@ npm --prefix packages/auto-reg install
 npx --prefix packages/auto-reg playwright install chromium
 ```
 
-快速验证（均不会真正注册；账号库默认加密，dry-run 也会写库，故需先设口令）：
+快速验证（均不会真正注册）。dry-run **不必**先设口令：未设 `AUTO_REG_VAULT_PASSWORD` 时本次明文落盘并警告。真实注册默认 headed；`--headless` 可强制无头。
 
 ```bash
 cd packages/auto-reg && npm test
-export AUTO_REG_VAULT_PASSWORD='一段强口令'
 cd packages/auto-reg && node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json
 ```
 
 收码默认走 **liao.bot 邮件 API + `bwen.net` 域名**：先 `GET https://liao.bot/email-api/get-email?domain=bwen.net` 分配一个 `@bwen.net` 地址，再 `GET https://liao.bot/email-api/first-email?femail=<allocated>` 轮询查信取验证码（也可改用自有域名 + IMAP）。
 
-账号库**默认加密**（`output.encrypt` 默认 `true`，AES-256-GCM，口令经 scrypt 派生），口令用环境变量 `AUTO_REG_VAULT_PASSWORD` 注入、**绝不写进配置**。**register 前先 `export AUTO_REG_VAULT_PASSWORD=...`；dry-run 同样需要**（它也写账号库，缺口令会在校验阶段报错）。
+账号库**默认加密**（`output.encrypt` 默认 `true`，AES-256-GCM，口令经 scrypt 派生），口令用环境变量 `AUTO_REG_VAULT_PASSWORD` 注入、**绝不写进配置**。正式注册前必须设置口令；失败尝试默认也会写入账号库（`output.persistFailures`，密码 / token 已抹掉）。运行要求 Node 22+。真实注册默认 headed，可加 `--headless` 强制无头。
 
-正式使用：复制 `examples/config.example.json` 为本地配置 → 确认域名 / liao.bot 配置（或换成你自己的域名与收件邮箱）→ 设置 `AUTO_REG_VAULT_PASSWORD` → 去掉 `--dry-run` 并指向本地配置运行。
+正式使用：复制 `examples/config.example.json` 为本地配置 → 确认域名 / liao.bot 配置（或换成你自己的域名与收件邮箱）→ 设置 `AUTO_REG_VAULT_PASSWORD` → 去掉 `--dry-run` 并指向本地配置运行（默认 headed；不要指望无头自动过人机）。
 
 注意边界：遇到人机验证需人工在浏览器窗口（headed）手动完成；该 CLI 不做机器码重置；因公开仓不含 Electron 主进程，应用内「注册」页签（`src/renderer/src/components/AutoRegPanel.vue`）只提供命令说明，不能一键运行。
 

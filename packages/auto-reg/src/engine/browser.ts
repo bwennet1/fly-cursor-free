@@ -35,6 +35,79 @@ const PHONE_PATTERN = /phone|radar/i;
 const CHALLENGE_POLL_MS = 1_000;
 
 /**
+ * Upper bound for the Continue click. Turnstile often covers/blocks the button;
+ * a long Playwright actionability wait is what looked like a hang at
+ * `submit_profile` in docs/问题.md. Cap the click at ≤8s and never wait on a
+ * post-click navigation (`noWaitAfter`).
+ */
+export const CLICK_CONTINUE_TIMEOUT_MS = 8_000;
+
+/**
+ * Playwright env var that selects `chrome-headless-shell`. Setting it to `0`
+ * forces full Chromium, which is the binary the extension policy expects.
+ */
+export const HEADLESS_SHELL_ENV = "PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL";
+
+/**
+ * Forces Playwright to launch full Chromium instead of `chrome-headless-shell`
+ * by setting {@link HEADLESS_SHELL_ENV}=0. `chrome-headless-shell` cannot load
+ * MV3 extensions and is the binary that stalled the real headless run in
+ * docs/问题.md. Mutates and returns `env` (defaults to `process.env`) so the
+ * behaviour is testable without launching a browser.
+ */
+export function disableHeadlessShell(
+    env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+    env[HEADLESS_SHELL_ENV] = "0";
+    return env;
+}
+
+/** How Chromium should be launched for a run (see {@link planChromiumLaunch}). */
+export interface ChromiumLaunchPlan {
+    /** Extra Chromium CLI args (only the extension flags in headed mode). */
+    args: string[];
+    /**
+     * Default args to strip. Only set (to `["--disable-extensions"]`) when the
+     * extension is loaded; otherwise `undefined` so Playwright keeps its
+     * defaults.
+     */
+    ignoreDefaultArgs: string[] | undefined;
+    /** True only in headed mode with a resolved patch dir. */
+    loadExtension: boolean;
+}
+
+/**
+ * Decides the Chromium launch flags for a run — the crux of docs/问题.md #1–#2.
+ *
+ * - **headed + patch dir**: pass `--disable-extensions-except` and
+ *   `--load-extension` for the MV3 turnstilePatch, and strip Playwright's
+ *   default `--disable-extensions` via `ignoreDefaultArgs` (otherwise
+ *   `--load-extension` is silently a no-op).
+ * - **headless (or no patch dir)**: never pass `--load-extension`. Headless
+ *   Chromium keeps `--disable-extensions`, so loading an MV3 extension there
+ *   only produces the fighting flags recorded in 问题.md. The screenX/Y patch
+ *   is still injected via `addInitScript` by the caller.
+ *
+ * Pure and synchronous so tests can assert the flags without launching Chromium.
+ */
+export function planChromiumLaunch(
+    headed: boolean,
+    patchDir: string | undefined,
+): ChromiumLaunchPlan {
+    const loadExtension = Boolean(patchDir && headed);
+    const args: string[] = [];
+    if (loadExtension && patchDir) {
+        args.push(`--disable-extensions-except=${patchDir}`);
+        args.push(`--load-extension=${patchDir}`);
+    }
+    return {
+        args,
+        ignoreDefaultArgs: loadExtension ? ["--disable-extensions"] : undefined,
+        loadExtension,
+    };
+}
+
+/**
  * Loads the Playwright library on demand. It is a declared dependency, but we
  * keep it out of the module's static import graph so that dry-run and tests
  * never pay its load cost (only `register()` does).
@@ -64,13 +137,17 @@ interface OpenedContext {
  * turnstilePatch (default on) applies the CDP screenX/screenY fix from
  * Cursor-Register / TheFalloutOf76 / Xewdy444:
  *
+ * - Forces full Chromium (not `chrome-headless-shell`) via
+ *   {@link disableHeadlessShell} so headless launches match the extension
+ *   policy below (docs/问题.md #1).
  * - **headed**: load the MV3 extension via `--load-extension` (same idea as
  *   DrissionPage `add_extension`), and strip Playwright's default
  *   `--disable-extensions` so the flag is not a no-op.
- * - **headless**: Playwright uses `chrome-headless-shell`, which does **not**
- *   support Chrome extensions. We skip `--load-extension` and only inject
- *   `script.js` via `addInitScript`. That still does not make Turnstile
- *   reliably pass headless — expect CHALLENGE_REQUIRED or use `--headed`.
+ * - **headless**: skip `--load-extension` entirely — headless Chromium keeps
+ *   `--disable-extensions`, so the two flags would fight (docs/问题.md #2). Only
+ *   `script.js` is injected via `addInitScript`. That still does not make
+ *   Turnstile reliably pass headless — expect CHALLENGE_REQUIRED or use
+ *   `--headed`.
  */
 async function openContext(
     playwright: PlaywrightModule,
@@ -89,30 +166,37 @@ async function openContext(
         );
     }
 
+    // docs/问题.md #1: Playwright's headless default is chrome-headless-shell,
+    // which cannot load MV3 extensions and is where the real headless run
+    // stalled. Force full Chromium before launching.
+    disableHeadlessShell();
+    emit("open_signup", `set ${HEADLESS_SHELL_ENV}=0 (launch full Chromium, not chrome-headless-shell)`);
+
     const userDataDir = await mkdtemp(path.join(tmpdir(), "auto-reg-chromium-"));
-    const args: string[] = [];
-    // Extensions only work in headed Chromium under Playwright — not under
-    // chrome-headless-shell (which also defaults to --disable-extensions).
-    const loadExtension = Boolean(patchDir && headed);
-    if (loadExtension && patchDir) {
-        args.push(`--disable-extensions-except=${patchDir}`);
-        args.push(`--load-extension=${patchDir}`);
-        emit("open_signup", `loading turnstilePatch extension from ${patchDir}`);
+    const plan = planChromiumLaunch(headed, patchDir);
+    if (plan.loadExtension && patchDir) {
+        emit(
+            "open_signup",
+            `headed: loading turnstilePatch MV3 extension from ${patchDir} ` +
+                "(--load-extension + --disable-extensions-except, with ignoreDefaultArgs:['--disable-extensions'])",
+        );
     } else if (patchDir && !headed) {
         emit(
             "open_signup",
-            "headless: skipping --load-extension (chrome-headless-shell cannot load MV3); " +
-                "injecting script.js via addInitScript only — Turnstile usually still needs --headed",
+            "headless: NOT passing --load-extension — headless Chromium keeps --disable-extensions " +
+                "so the two flags fight (docs/问题.md #2); injecting script.js via addInitScript only " +
+                "— Turnstile usually still needs --headed",
         );
     }
 
     try {
         const context = await playwright.chromium.launchPersistentContext(userDataDir, {
             headless: !headed,
-            args,
-            // Without this, Playwright keeps --disable-extensions and the
-            // --load-extension flags above are ineffective.
-            ignoreDefaultArgs: loadExtension ? ["--disable-extensions"] : undefined,
+            args: plan.args,
+            // In headed mode this strips the default --disable-extensions so the
+            // --load-extension flag above is not a no-op. In headless it is
+            // undefined, so Playwright keeps its defaults.
+            ignoreDefaultArgs: plan.ignoreDefaultArgs,
             viewport: { width: 1280, height: 800 },
         });
 
@@ -160,7 +244,7 @@ async function present(page: Page, selector: string): Promise<boolean> {
  * a `challengeHint` is configured, also treats it as a CSS selector and as a
  * plain substring of the page text.
  */
-async function looksLikeChallenge(page: Page, hint: string): Promise<boolean> {
+export async function looksLikeChallenge(page: Page, hint: string): Promise<boolean> {
     let html = "";
     try {
         html = (await page.content()).toLowerCase();
@@ -182,7 +266,7 @@ async function looksLikeChallenge(page: Page, hint: string): Promise<boolean> {
  * it does not solve Turnstile. In headed mode we poll for a human; in headless
  * (or on timeout) we abort with CHALLENGE_REQUIRED.
  */
-async function handleChallenge(
+export async function handleChallenge(
     page: Page,
     config: AutoRegConfig,
     emit: (stage: RegisterStage, message: string) => void,
@@ -221,17 +305,31 @@ async function handleChallenge(
 /**
  * Clicks Continue without waiting on a post-click navigation. Turnstile often
  * covers the button / blocks navigation; a long Playwright actionability wait
- * looks like a hang at `submit_profile`. If the click is obstructed, fall
- * through to {@link handleChallenge} instead of spinning for `timeoutMs`.
+ * looks like a hang at `submit_profile` (docs/问题.md #1).
+ *
+ * 1. **Before clicking**, check {@link looksLikeChallenge}. If a challenge is
+ *    already up, hand off to {@link handleChallenge} instead of dead-clicking a
+ *    covered/blocked button — headless aborts fast with CHALLENGE_REQUIRED, and
+ *    headed waits for the human to clear it before we click.
+ * 2. The click itself is capped at {@link CLICK_CONTINUE_TIMEOUT_MS} (≤8s) with
+ *    `noWaitAfter`, so an obstructed button fails fast instead of spinning for
+ *    `timeoutMs`. On failure we re-check for a challenge before rethrowing.
+ * 3. **After clicking**, re-run {@link handleChallenge} in case the challenge
+ *    only appears once the form is submitted.
  */
-async function clickContinue(
+export async function clickContinue(
     page: Page,
     selector: string,
     timeout: number,
     config: AutoRegConfig,
     emit: (stage: RegisterStage, message: string) => void,
 ): Promise<void> {
-    const clickTimeout = Math.min(timeout, 20_000);
+    if (await looksLikeChallenge(page, config.selectors.challengeHint)) {
+        emit("challenge", "challenge present before Continue; not clicking the button yet");
+        await handleChallenge(page, config, emit);
+    }
+
+    const clickTimeout = Math.min(timeout, CLICK_CONTINUE_TIMEOUT_MS);
     try {
         await page.click(selector, { timeout: clickTimeout, noWaitAfter: true });
     } catch (error) {
@@ -328,7 +426,7 @@ export class BrowserEngine implements RegisterEngine {
                 emit("wait_mailbox", "waiting for the verification code");
                 const since = new Date();
                 code = await waitForCode(since);
-                emit("submit_code", `entering verification code ${code}`);
+                emit("submit_code", "entering verification code");
                 await fillOtp(page, selectors.otpInputs, code);
             }
 

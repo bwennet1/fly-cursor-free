@@ -35,6 +35,20 @@ test("defaultConfig has the documented signup URL and a manual provider", () => 
     assert.equal(config.count, 1);
 });
 
+test("defaultConfig persists failures by default", () => {
+    const config = defaultConfig();
+    assert.equal(config.output.persistFailures, true);
+});
+
+test("output.persistFailures can be disabled from the config file", async () => {
+    const path = await writeConfigFile({
+        email: { domain: "example.com" },
+        output: { persistFailures: false },
+    });
+    const config = await loadConfig(path, NO_ENV);
+    assert.equal(config.output.persistFailures, false);
+});
+
 test("loadConfig merges the file over defaults", async () => {
     const path = await writeConfigFile({
         count: 3,
@@ -48,6 +62,7 @@ test("loadConfig merges the file over defaults", async () => {
     assert.equal(config.signupUrl, DEFAULT_SIGNUP_URL);
     assert.equal(config.identity.passwordLength, 16);
     assert.equal(config.output.accountsPath, "accounts.json");
+    assert.equal(config.output.persistFailures, true);
 });
 
 test("missing required fields throw AutoRegError(init, CONFIG)", async () => {

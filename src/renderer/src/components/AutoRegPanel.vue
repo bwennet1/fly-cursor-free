@@ -10,7 +10,7 @@
         "npm --prefix packages/auto-reg install && npx --prefix packages/auto-reg playwright install chromium";
     const testCommand = "cd packages/auto-reg && npm test";
     const dryRunCommand =
-        "cd packages/auto-reg && AUTO_REG_VAULT_PASSWORD='一段强口令' node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json";
+        "cd packages/auto-reg && node --experimental-strip-types src/cli.ts register --dry-run --config examples/config.example.json";
     const runCommand =
         "cd packages/auto-reg && AUTO_REG_VAULT_PASSWORD='一段强口令' node --experimental-strip-types src/cli.ts register --config config.local.json";
 
@@ -91,9 +91,9 @@
                     </div>
                     <p class="intro-text">
                         以下两条命令均不会真正注册账号：单元测试离线运行；<code>--dry-run</code>
-                        只校验配置、生成身份并走通流水线形状，不打开浏览器、不联网。但账号库<b>默认加密</b>，而
-                        <code>--dry-run</code> 也会写入本地账号库，因此<b>连 dry-run 也需先设置
-                        <code>AUTO_REG_VAULT_PASSWORD</code></b>（缺口令会在配置校验阶段报错；下面命令里已带上示例口令）。
+                        只校验配置、生成身份并走通流水线形状，不打开浏览器、不联网。账号库<b>默认加密</b>，但对
+                        dry-run 来说 <code>AUTO_REG_VAULT_PASSWORD</code> 是<b>可选</b>的：缺口令时该次演练会自动改为明文落盘并给出警告，
+                        不会报错（下面命令带上示例口令可保持加密；正式注册前必须设置口令）。
                     </p>
 
                     <div class="command-row">
@@ -168,8 +168,9 @@
                     <p class="intro-text">
                         4️⃣ <b>设置账号库加密口令</b>：账号库<b>默认加密</b>（<code>output.encrypt</code> 默认
                         <code>true</code>，AES-256-GCM，口令经 scrypt 派生），口令通过环境变量
-                        <code>AUTO_REG_VAULT_PASSWORD</code> 注入、<b>切勿写进配置文件</b>，register 前必须设置；<br />
-                        5️⃣ 去掉 <code>--dry-run</code>，设置口令后指向本地配置运行：
+                        <code>AUTO_REG_VAULT_PASSWORD</code> 注入、<b>切勿写进配置文件</b>，正式 register 前必须设置；<br />
+                        5️⃣ 去掉 <code>--dry-run</code>，设置口令后指向本地配置运行（<b>真实注册默认 headed</b>，无需再加
+                        <code>--headed</code>；仅调试无头时才加 <code>--headless</code>）：
                     </p>
 
                     <div class="command-row">
@@ -187,7 +188,7 @@
 
                     <p class="license-tip">
                         ⚠️ 边界说明：遇到人机验证（Turnstile
-                        等）时<b>需要人工在弹出的浏览器窗口中手动完成</b>（headed 模式，不做自动过验证）；该 CLI
+                        等）时<b>需要人工在弹出的浏览器窗口中手动完成</b>（真实注册默认 headed，不做自动过验证）；该 CLI
                         <b>不做机器码重置</b>，只负责注册与账号落盘；账号库含密码与 session token，默认加密后需用同一
                         <code>AUTO_REG_VAULT_PASSWORD</code> 口令解密，口令丢失不可恢复，请妥善备份。
                     </p>

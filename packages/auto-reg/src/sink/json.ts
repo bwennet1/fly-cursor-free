@@ -47,7 +47,7 @@ export function createJsonSink(options: JsonSinkOptions): AccountSink {
     return {
         async append(result: RegisterResult): Promise<void> {
             const existing = await readForAppend(accountsPath, password);
-            existing.push(result);
+            existing.push(scrubFailedRecord(result));
             await writeAtomic(accountsPath, existing, password);
         },
     };
@@ -180,6 +180,23 @@ async function writeAtomic(
         await fs.rm(tmpPath, { force: true }).catch(() => {});
         throw sinkError(`failed to persist accounts file ${accountsPath}: ${errMessage(err)}`);
     }
+}
+
+/**
+ * Defense in depth: even if a caller forgets to scrub a failed attempt,
+ * the sink never writes password / sessionToken / verification code for
+ * `ok: false` records. Success records are stored unchanged.
+ */
+export function scrubFailedRecord(result: RegisterResult): RegisterResult {
+    if (result.ok) {
+        return result;
+    }
+    return {
+        ...result,
+        identity: { ...result.identity, password: "" },
+        sessionToken: undefined,
+        code: undefined,
+    };
 }
 
 function requireVaultPassword(explicit?: string): string {

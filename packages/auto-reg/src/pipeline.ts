@@ -111,14 +111,25 @@ async function runOne(args: RunOneArgs): Promise<RegisterResult> {
         return result;
     } catch (err) {
         const stage: RegisterStage = err instanceof AutoRegError ? err.stage : "failed";
+        const failedIdentity = identity ?? placeholderIdentity(config);
+        // A failed attempt must never persist secrets: drop the password and
+        // omit sessionToken/code entirely, keeping only email/error/stage.
         const result: RegisterResult = {
             ok: false,
             stage,
-            identity: identity ?? placeholderIdentity(config),
+            identity: { ...failedIdentity, password: "" },
             error: errMessage(err),
             startedAt: startedAt.toISOString(),
             finishedAt: new Date().toISOString(),
         };
+        if (config.output.persistFailures !== false) {
+            try {
+                await sink.append(result);
+            } catch {
+                // Persisting a failure is best-effort; a sink error here must
+                // never mask the original registration failure.
+            }
+        }
         emit(event(stage, `failed ${result.identity.email || "(no email)"}`));
         return result;
     }
