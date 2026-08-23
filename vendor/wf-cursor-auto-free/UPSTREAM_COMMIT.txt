@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/wangffei/wf-cursor-auto-free
+Cloned commit SHA: a9f50d3f6db86c0bf92ba4089c3b075ce56a1b9c
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

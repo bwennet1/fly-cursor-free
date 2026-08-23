@@ -1,0 +1,23 @@
+/* Relay design tokens — authoritative */
+:root {
+  --color-bg: #f4f4f5;
+  --color-surface: #ffffff;
+  --color-border: #d0d7de;
+  --color-text: #1f2328;
+  --color-text-muted: #656d76;
+  --color-accent: #0969da;
+  --color-accent-hover: #0550ae;
+  --color-accent-muted: #ddf4ff;
+  --color-success: #1a7f37;
+  --color-success-bg: #dafbe1;
+  --color-warning: #9a6700;
+  --color-warning-bg: #fff8c5;
+  --color-danger: #cf222e;
+  --color-danger-bg: #ffebe9;
+  --color-log-bg: #f6f8fa;
+  --color-log-text: #24292f;
+  --font-sans: system-ui, 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --shadow-card: 0 1px 3px rgba(31, 35, 40, 0.12);
+}

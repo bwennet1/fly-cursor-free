@@ -1,0 +1,38 @@
+{
+    "count": 1,
+    "dryRun": false,
+    "headed": false,
+    "turnstilePatch": true,
+    "timeoutMs": 120000,
+    "signupUrl": "https://authenticator.cursor.sh/sign-up",
+    "email": {
+        "provider": "liao_bot",
+        "domain": "bwen.net",
+        "liao": {
+            "baseUrl": "https://liao.bot/email-api",
+            "allocatePath": "/get-email",
+            "firstEmailPath": "/first-email"
+        },
+        "codeRegex": "\\b(\\d{6})\\b",
+        "pollMs": 3000,
+        "pollTimeoutMs": 120000
+    },
+    "identity": {
+        "emailPrefix": "dev.",
+        "localPartLength": 12,
+        "passwordLength": 16
+    },
+    "output": {
+        "accountsPath": "accounts.json",
+        "encrypt": true
+    },
+    "selectors": {
+        "firstName": "input[name=\"first_name\"]",
+        "lastName": "input[name=\"last_name\"]",
+        "email": "input[name=\"email\"]",
+        "password": "input[name=\"password\"]",
+        "continueButton": "button[type=\"submit\"]",
+        "otpInputs": "input[autocomplete=\"one-time-code\"]",
+        "challengeHint": "[id*=\"captcha\"], iframe[src*=\"challenge\"]"
+    }
+}
