@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/lens68/lens-cursor-free
+Cloned commit SHA: 9264f3bb02165974accd42e1163217c8c14aa41b
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

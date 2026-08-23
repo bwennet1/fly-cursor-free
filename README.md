@@ -92,6 +92,18 @@ npm run auto-gui:setup && npm run auto-gui
 
 ---
 
+## 自动 REG 调研（多源对照）
+
+已在 `vendor/` 浅克隆多份相关开源/文档仓，用于学习「自动注册」而不是把它们编译进同一个安装包：
+
+- 对照表：[research/SOURCE_MATRIX.md](./research/SOURCE_MATRIX.md)
+- 新项目合并计划（推荐独立 `auto-reg`，六层编排）：[docs/AUTO_REG_MERGE_PLAN.md](./docs/AUTO_REG_MERGE_PLAN.md)
+- 第三方许可总表：[THIRD_PARTY.md](./THIRD_PARTY.md)
+
+其中 YCursor / XC-Cursor 几乎无源码；`cursor-pro-trial` 只是静态页；`lens-cursor-free` 是领号壳而不是注册器。真正可对照的自动 REG 实现主要在 `cursor-auto-free` 谱系、`zzxcursor`（MIT）和 `any-auto-register`（AGPL）。
+
+---
+
 ## 💰 赞赏
 
 如果觉得这个项目对你有帮助，鼓励作者持续更新。

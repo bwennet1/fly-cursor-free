@@ -65,3 +65,26 @@ npm run auto-gui         # 启动程序
 
 - [go-cursor-help](https://github.com/yuaotian/go-cursor-help) — 机器码重置实现参考
 - [cursor-auto-free](https://github.com/chengazhen/cursor-auto-free) — 自动续期实现参考
+
+---
+
+## 2026-08-23 增补的对照拷贝
+
+下列目录均为浅克隆后去掉嵌套 `.git` 的原样拷贝，仅额外写入 `UPSTREAM_COMMIT.txt`。完整对照见 [research/SOURCE_MATRIX.md](./research/SOURCE_MATRIX.md)。**请勿在 vendor 内改上游逻辑。**
+
+| 目录 | 来源 | 许可证（以仓库内文件或 README 为准） |
+|---|---|---|
+| `vendor/zzxcursor` | https://github.com/zhangx1aoxi77/ZZXcursor | MIT（见 `LICENSE`） |
+| `vendor/cursor-free-vip` | https://github.com/hovanhoa/cursor-free-vip | CC BY-NC-ND 4.0（见 `LICENSE.md`） |
+| `vendor/cursor-register` | https://github.com/JiuZX/Cursor-Register | 未发现 LICENSE 文件 |
+| `vendor/wf-cursor-auto-free` | https://github.com/wangffei/wf-cursor-auto-free | README 称 CC BY-NC-ND 4.0 |
+| `vendor/cursor-api` | https://github.com/waterwoodwind/cursor-api | 未发现 LICENSE 文件 |
+| `vendor/cursor-auto-free` | https://github.com/chengazhen/cursor-auto-free | README 称 CC BY-NC-ND 4.0 |
+| `vendor/ycursor` | https://github.com/YanCchen/YCursor | 未发现；仓库主要为文档与截图 |
+| `vendor/xc-cursor` | https://github.com/Aeth247/XC-Cursor | 未发现；仓库主要为文档与截图 |
+| `vendor/any-auto-register` | https://github.com/lxf746/any-auto-register | AGPL-3.0（见 `LICENSE`） |
+| `vendor/cursor-auto-icloud` | https://github.com/Ryan0204/cursor-auto-icloud | CC BY-NC-ND 4.0（见 `LICENSE.md`） |
+| `vendor/cursor-pro-trial` | https://github.com/aigem/cursor-pro-trial | 未发现；静态说明页 |
+| `vendor/lens-cursor-free` | https://github.com/lens68/lens-cursor-free | MIT（见 `LICENSE`；商业核心不在本拷贝中） |
+
+合并成新自动 REG 项目的计划见 [docs/AUTO_REG_MERGE_PLAN.md](./docs/AUTO_REG_MERGE_PLAN.md)。AGPL 与 CC BY-NC-ND 源码**不得**未经评估地改完再并入 MIT/专有产品。
