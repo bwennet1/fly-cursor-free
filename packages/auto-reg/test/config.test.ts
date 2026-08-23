@@ -33,6 +33,7 @@ test("defaultConfig has the documented signup URL and a manual provider", () => 
     assert.equal(config.signupUrl, "https://authenticator.cursor.sh/sign-up");
     assert.equal(config.email.provider, "manual");
     assert.equal(config.count, 1);
+    assert.equal(config.turnstileExtension, false);
 });
 
 test("defaultConfig persists failures by default", () => {

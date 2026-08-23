@@ -21,6 +21,7 @@ export function defaultConfig(): AutoRegConfig {
         dryRun: false,
         headed: false,
         turnstilePatch: true,
+        turnstileExtension: false,
         timeoutMs: 120_000,
         signupUrl: DEFAULT_SIGNUP_URL,
         email: {

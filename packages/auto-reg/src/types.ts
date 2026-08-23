@@ -25,11 +25,17 @@ export interface AutoRegConfig {
     dryRun: boolean;
     headed: boolean;
     /**
-     * Load the packaged turnstilePatch (CDP MouseEvent.screenX/Y fix from
-     * TheFalloutOf76 / Cursor-Register). Default true. This is not a captcha
-     * solver — unresolved challenges still fail or wait for a human.
+     * Inject the packaged turnstilePatch script.js via addInitScript
+     * (CDP MouseEvent.screenX/Y fix). Default true. Not a captcha solver.
+     * The MV3 is NOT loaded as a Chrome extension unless
+     * {@link turnstileExtension} is also true.
      */
     turnstilePatch: boolean;
+    /**
+     * When true AND headed, load resources/turnstilePatch via `--load-extension`.
+     * Default false: Cloudflare reports "Incompatible browser extension".
+     */
+    turnstileExtension: boolean;
     timeoutMs: number;
     signupUrl: string;
     email: EmailConfig;

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -26,7 +27,8 @@ type PlaywrightModule = typeof import("playwright");
 const MISSING_BROWSER_PATTERN = /executable doesn't exist|playwright install/i;
 
 /** Default text/markers that identify an anti-bot challenge page. */
-const DEFAULT_CHALLENGE_PATTERN = /turnstile|captcha|hcaptcha|recaptcha|cf-chl|challenge|are you (a )?human/i;
+const DEFAULT_CHALLENGE_PATTERN =
+    /turnstile|captcha|hcaptcha|recaptcha|cf-chl|challenge|are you (a )?human|incompatible browser extension|just a moment|performing security verification/i;
 
 /** Markers that identify a phone / "radar" risk verification step. */
 const PHONE_PATTERN = /phone|radar/i;
@@ -50,10 +52,7 @@ export const HEADLESS_SHELL_ENV = "PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL";
 
 /**
  * Forces Playwright to launch full Chromium instead of `chrome-headless-shell`
- * by setting {@link HEADLESS_SHELL_ENV}=0. `chrome-headless-shell` cannot load
- * MV3 extensions and is the binary that stalled the real headless run in
- * docs/问题.md. Mutates and returns `env` (defaults to `process.env`) so the
- * behaviour is testable without launching a browser.
+ * by setting {@link HEADLESS_SHELL_ENV}=0. Mutates and returns `env`.
  */
 export function disableHeadlessShell(
     env: NodeJS.ProcessEnv = process.env,
@@ -62,39 +61,124 @@ export function disableHeadlessShell(
     return env;
 }
 
+export const ENV_CHROME_PATH = "AUTO_REG_CHROME_PATH";
+export const ENV_PLAYWRIGHT_CHANNEL = "AUTO_REG_PLAYWRIGHT_CHANNEL";
+
+const DEFAULT_CHROME_PATHS = [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chrome",
+];
+
+/** Playwright text when the headed window crashed or the context was closed. */
+export const CLOSED_BROWSER_PATTERN =
+    /target page, context or browser has been closed|targetclosederror|browser has been closed/i;
+
+export type BrowserBinarySource = "channel-chrome" | "executablePath" | "bundled";
+
+export interface BrowserBinaryPlan {
+    channel?: "chrome";
+    executablePath?: string;
+    source: BrowserBinarySource;
+}
+
+/**
+ * Prefers installed Google Chrome over Playwright's bundled Chromium.
+ * Bundled `chrome-linux64/chrome` has crashed the headed window on some
+ * Linux displays (docs/问题.md #4) while `/usr/bin/google-chrome` stayed up.
+ *
+ * Pure so tests can assert without launching a browser.
+ */
+export function planBrowserBinary(
+    env: NodeJS.ProcessEnv = process.env,
+    pathExists: (p: string) => boolean = existsSync,
+): BrowserBinaryPlan {
+    const channel = (env[ENV_PLAYWRIGHT_CHANNEL] ?? "").trim().toLowerCase();
+    if (channel === "bundled" || channel === "chromium") {
+        return { source: "bundled" };
+    }
+    const explicit = env[ENV_CHROME_PATH]?.trim();
+    if (explicit) {
+        return { executablePath: explicit, source: "executablePath" };
+    }
+    if (channel === "chrome") {
+        return { channel: "chrome", source: "channel-chrome" };
+    }
+    if (DEFAULT_CHROME_PATHS.some((candidate) => pathExists(candidate))) {
+        return { channel: "chrome", source: "channel-chrome" };
+    }
+    return { source: "bundled" };
+}
+
+export function isClosedBrowserError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return CLOSED_BROWSER_PATTERN.test(message);
+}
+
+export function rethrowIfBrowserClosed(error: unknown, stage: RegisterStage): void {
+    if (!isClosedBrowserError(error)) return;
+    throw new AutoRegError(
+        stage,
+        ErrorCodes.BROWSER_CLOSED,
+        "headed browser window closed or crashed (Playwright bundled Chromium often dies on Linux displays); " +
+            "retry with system Chrome via channel=chrome or AUTO_REG_CHROME_PATH=/usr/bin/google-chrome " +
+            `(${error instanceof Error ? error.message : String(error)})`,
+    );
+}
+
+export type PageBlockKind = "ok" | "rate_limit" | "incompatible_extension" | "interstitial";
+
+/** Classifies signup HTML/title/status. Does not attempt to pass the block. */
+export function classifyPageBlock(html: string, title = "", status?: number): PageBlockKind {
+    const blob = `${title}\n${html}`;
+    if (status === 429 || /too many requests/i.test(blob)) return "rate_limit";
+    if (/incompatible browser extension/i.test(blob)) return "incompatible_extension";
+    if (/just a moment|performing security verification/i.test(blob)) return "interstitial";
+    return "ok";
+}
+
+export function pageBlockError(kind: PageBlockKind, stage: RegisterStage = "open_signup"): AutoRegError {
+    if (kind === "rate_limit") {
+        return new AutoRegError(
+            stage,
+            ErrorCodes.RATE_LIMITED,
+            "signup URL returned 429 / rate limit; wait before opening the page again — no automated bypass is attempted",
+        );
+    }
+    if (kind === "incompatible_extension") {
+        return new AutoRegError(
+            stage,
+            ErrorCodes.CHALLENGE_REQUIRED,
+            "Cloudflare reported Incompatible browser extension — leave turnstileExtension false (do not --load-extension the turnstilePatch MV3)",
+        );
+    }
+    return new AutoRegError(
+        stage,
+        ErrorCodes.CHALLENGE_REQUIRED,
+        "Cloudflare interstitial (Just a moment / security verification) — form fields are not present; " +
+            "this is not solved automatically. If you already hit 429, wait. Do not tight-loop register.",
+    );
+}
+
 /** How Chromium should be launched for a run (see {@link planChromiumLaunch}). */
 export interface ChromiumLaunchPlan {
-    /** Extra Chromium CLI args (only the extension flags in headed mode). */
     args: string[];
-    /**
-     * Default args to strip. Only set (to `["--disable-extensions"]`) when the
-     * extension is loaded; otherwise `undefined` so Playwright keeps its
-     * defaults.
-     */
     ignoreDefaultArgs: string[] | undefined;
-    /** True only in headed mode with a resolved patch dir. */
+    /** True only when opted in, headed, and a patch dir exists. */
     loadExtension: boolean;
 }
 
 /**
- * Decides the Chromium launch flags for a run — the crux of docs/问题.md #1–#2.
- *
- * - **headed + patch dir**: pass `--disable-extensions-except` and
- *   `--load-extension` for the MV3 turnstilePatch, and strip Playwright's
- *   default `--disable-extensions` via `ignoreDefaultArgs` (otherwise
- *   `--load-extension` is silently a no-op).
- * - **headless (or no patch dir)**: never pass `--load-extension`. Headless
- *   Chromium keeps `--disable-extensions`, so loading an MV3 extension there
- *   only produces the fighting flags recorded in 问题.md. The screenX/Y patch
- *   is still injected via `addInitScript` by the caller.
- *
- * Pure and synchronous so tests can assert the flags without launching Chromium.
+ * Default: never pass `--load-extension`. Cloudflare reports
+ * "Incompatible browser extension" when the packaged MV3 is loaded that way
+ * (docs/问题.md #5). Opt in with `loadAsExtension=true` (headed + patch dir).
  */
 export function planChromiumLaunch(
     headed: boolean,
     patchDir: string | undefined,
+    loadAsExtension = false,
 ): ChromiumLaunchPlan {
-    const loadExtension = Boolean(patchDir && headed);
+    const loadExtension = Boolean(patchDir && headed && loadAsExtension);
     const args: string[] = [];
     if (loadExtension && patchDir) {
         args.push(`--disable-extensions-except=${patchDir}`);
@@ -107,11 +191,6 @@ export function planChromiumLaunch(
     };
 }
 
-/**
- * Loads the Playwright library on demand. It is a declared dependency, but we
- * keep it out of the module's static import graph so that dry-run and tests
- * never pay its load cost (only `register()` does).
- */
 async function loadPlaywright(): Promise<PlaywrightModule> {
     try {
         return await import("playwright");
@@ -127,28 +206,9 @@ async function loadPlaywright(): Promise<PlaywrightModule> {
 
 interface OpenedContext {
     context: BrowserContext;
-    /** Temp profile dir used by launchPersistentContext; removed in close(). */
     userDataDir: string;
 }
 
-/**
- * Opens a Chromium context for signup.
- *
- * turnstilePatch (default on) applies the CDP screenX/screenY fix from
- * Cursor-Register / TheFalloutOf76 / Xewdy444:
- *
- * - Forces full Chromium (not `chrome-headless-shell`) via
- *   {@link disableHeadlessShell} so headless launches match the extension
- *   policy below (docs/问题.md #1).
- * - **headed**: load the MV3 extension via `--load-extension` (same idea as
- *   DrissionPage `add_extension`), and strip Playwright's default
- *   `--disable-extensions` so the flag is not a no-op.
- * - **headless**: skip `--load-extension` entirely — headless Chromium keeps
- *   `--disable-extensions`, so the two flags would fight (docs/问题.md #2). Only
- *   `script.js` is injected via `addInitScript`. That still does not make
- *   Turnstile reliably pass headless — expect CHALLENGE_REQUIRED or use
- *   `--headed`.
- */
 async function openContext(
     playwright: PlaywrightModule,
     config: AutoRegConfig,
@@ -166,39 +226,57 @@ async function openContext(
         );
     }
 
-    // docs/问题.md #1: Playwright's headless default is chrome-headless-shell,
-    // which cannot load MV3 extensions and is where the real headless run
-    // stalled. Force full Chromium before launching.
     disableHeadlessShell();
     emit("open_signup", `set ${HEADLESS_SHELL_ENV}=0 (launch full Chromium, not chrome-headless-shell)`);
 
-    const userDataDir = await mkdtemp(path.join(tmpdir(), "auto-reg-chromium-"));
-    const plan = planChromiumLaunch(headed, patchDir);
-    if (plan.loadExtension && patchDir) {
+    const binary = planBrowserBinary();
+    if (binary.source === "channel-chrome") {
+        emit("open_signup", "using Playwright channel=chrome (system Google Chrome) to avoid bundled Chromium window crashes");
+    } else if (binary.source === "executablePath" && binary.executablePath) {
+        emit("open_signup", `using AUTO_REG_CHROME_PATH=${binary.executablePath}`);
+    } else {
         emit(
             "open_signup",
-            `headed: loading turnstilePatch MV3 extension from ${patchDir} ` +
-                "(--load-extension + --disable-extensions-except, with ignoreDefaultArgs:['--disable-extensions'])",
-        );
-    } else if (patchDir && !headed) {
-        emit(
-            "open_signup",
-            "headless: NOT passing --load-extension — headless Chromium keeps --disable-extensions " +
-                "so the two flags fight (docs/问题.md #2); injecting script.js via addInitScript only " +
-                "— Turnstile usually still needs --headed",
+            "using Playwright bundled Chromium — if the headed window vanishes, install Google Chrome or set AUTO_REG_CHROME_PATH",
         );
     }
 
+    const userDataDir = await mkdtemp(path.join(tmpdir(), "auto-reg-chromium-"));
+    const plan = planChromiumLaunch(headed, patchDir, config.turnstileExtension === true);
+    if (plan.loadExtension && patchDir) {
+        emit(
+            "open_signup",
+            `headed + turnstileExtension: loading MV3 from ${patchDir} via --load-extension ` +
+                "(Cloudflare may report Incompatible browser extension)",
+        );
+    } else if (patchEnabled) {
+        emit(
+            "open_signup",
+            "not passing --load-extension (Cloudflare flags the turnstilePatch MV3); " +
+                "script.js is injected via addInitScript only",
+        );
+    }
+
+    const launchOptions: Parameters<PlaywrightModule["chromium"]["launchPersistentContext"]>[1] = {
+        headless: !headed,
+        args: plan.args,
+        ignoreDefaultArgs: plan.ignoreDefaultArgs,
+        viewport: { width: 1280, height: 800 },
+    };
+    if (binary.channel) launchOptions.channel = binary.channel;
+    if (binary.executablePath) launchOptions.executablePath = binary.executablePath;
+
     try {
-        const context = await playwright.chromium.launchPersistentContext(userDataDir, {
-            headless: !headed,
-            args: plan.args,
-            // In headed mode this strips the default --disable-extensions so the
-            // --load-extension flag above is not a no-op. In headless it is
-            // undefined, so Playwright keeps its defaults.
-            ignoreDefaultArgs: plan.ignoreDefaultArgs,
-            viewport: { width: 1280, height: 800 },
-        });
+        let context: BrowserContext;
+        try {
+            context = await playwright.chromium.launchPersistentContext(userDataDir, launchOptions);
+        } catch (error) {
+            if (binary.source === "bundled") throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            emit("open_signup", `system Chrome launch failed, falling back to bundled Chromium (${message})`);
+            const { channel: _c, executablePath: _e, ...bundled } = launchOptions;
+            context = await playwright.chromium.launchPersistentContext(userDataDir, bundled);
+        }
 
         if (patchScript) {
             await context.addInitScript({ path: patchScript });
@@ -228,27 +306,22 @@ async function closeOpened(opened: OpenedContext): Promise<void> {
     }
 }
 
-/** True when the selector matches at least one element on the page. */
 async function present(page: Page, selector: string): Promise<boolean> {
     if (!selector) return false;
     try {
         return (await page.locator(selector).count()) > 0;
-    } catch {
+    } catch (error) {
+        rethrowIfBrowserClosed(error, "open_signup");
         return false;
     }
 }
 
-/**
- * Detects whether the current page looks like an anti-bot challenge. Matches
- * the built-in {@link DEFAULT_CHALLENGE_PATTERN} against the page HTML and, when
- * a `challengeHint` is configured, also treats it as a CSS selector and as a
- * plain substring of the page text.
- */
 export async function looksLikeChallenge(page: Page, hint: string): Promise<boolean> {
     let html = "";
     try {
         html = (await page.content()).toLowerCase();
-    } catch {
+    } catch (error) {
+        rethrowIfBrowserClosed(error, "challenge");
         html = "";
     }
     if (DEFAULT_CHALLENGE_PATTERN.test(html)) return true;
@@ -261,17 +334,61 @@ export async function looksLikeChallenge(page: Page, hint: string): Promise<bool
     return false;
 }
 
-/**
- * Handles a detected challenge. turnstilePatch only fixes CDP screenX/screenY;
- * it does not solve Turnstile. In headed mode we poll for a human; in headless
- * (or on timeout) we abort with CHALLENGE_REQUIRED.
- */
+export async function readPageText(page: Page): Promise<{ html: string; title: string }> {
+    let html = "";
+    let title = "";
+    try {
+        html = await page.content();
+    } catch (error) {
+        rethrowIfBrowserClosed(error, "open_signup");
+    }
+    try {
+        title = await page.title();
+    } catch (error) {
+        rethrowIfBrowserClosed(error, "open_signup");
+    }
+    return { html, title };
+}
+
+export async function assertSignupReady(
+    page: Page,
+    firstNameSelector: string,
+    status?: number,
+    stage: RegisterStage = "open_signup",
+): Promise<void> {
+    const { html, title } = await readPageText(page);
+    const kind = classifyPageBlock(html, title, status);
+    if (kind !== "ok") {
+        throw pageBlockError(kind, stage);
+    }
+    let count = 0;
+    try {
+        count = await page.locator(firstNameSelector).count();
+    } catch (error) {
+        rethrowIfBrowserClosed(error, stage);
+        throw error;
+    }
+    if (count === 0) {
+        throw new AutoRegError(
+            stage,
+            ErrorCodes.SELECTOR,
+            `signup form field ${firstNameSelector} not found (Cloudflare interstitial, 429, or closed window) — not waiting out timeoutMs`,
+        );
+    }
+}
+
 export async function handleChallenge(
     page: Page,
     config: AutoRegConfig,
     emit: (stage: RegisterStage, message: string) => void,
 ): Promise<void> {
     if (!(await looksLikeChallenge(page, config.selectors.challengeHint))) return;
+
+    const { html, title } = await readPageText(page);
+    const kind = classifyPageBlock(html, title);
+    if (kind !== "ok") {
+        throw pageBlockError(kind, "challenge");
+    }
 
     emit("challenge", "anti-bot challenge detected (turnstile / captcha / challenge)");
 
@@ -280,9 +397,9 @@ export async function handleChallenge(
             "challenge",
             ErrorCodes.CHALLENGE_REQUIRED,
             "a bot challenge was detected under headless Chromium; " +
-                "Playwright's chrome-headless-shell cannot load the turnstilePatch MV3 extension, " +
-                "and Turnstile rarely passes without a real display — re-run with --headed " +
-                "(turnstilePatch is a CDP screenX/Y fingerprint fix, not a captcha solver)",
+                "Turnstile rarely passes without a real display — re-run with --headed " +
+                "(turnstilePatch is a CDP screenX/Y fix injected via addInitScript, not a solver; " +
+                "do not enable turnstileExtension — Cloudflare flags that MV3)",
         );
     }
 
@@ -293,6 +410,10 @@ export async function handleChallenge(
             emit("challenge", "challenge cleared manually");
             return;
         }
+        const again = classifyPageBlock((await readPageText(page)).html, (await readPageText(page)).title);
+        if (again !== "ok") {
+            throw pageBlockError(again, "challenge");
+        }
     }
 
     throw new AutoRegError(
@@ -302,21 +423,6 @@ export async function handleChallenge(
     );
 }
 
-/**
- * Clicks Continue without waiting on a post-click navigation. Turnstile often
- * covers the button / blocks navigation; a long Playwright actionability wait
- * looks like a hang at `submit_profile` (docs/问题.md #1).
- *
- * 1. **Before clicking**, check {@link looksLikeChallenge}. If a challenge is
- *    already up, hand off to {@link handleChallenge} instead of dead-clicking a
- *    covered/blocked button — headless aborts fast with CHALLENGE_REQUIRED, and
- *    headed waits for the human to clear it before we click.
- * 2. The click itself is capped at {@link CLICK_CONTINUE_TIMEOUT_MS} (≤8s) with
- *    `noWaitAfter`, so an obstructed button fails fast instead of spinning for
- *    `timeoutMs`. On failure we re-check for a challenge before rethrowing.
- * 3. **After clicking**, re-run {@link handleChallenge} in case the challenge
- *    only appears once the form is submitted.
- */
 export async function clickContinue(
     page: Page,
     selector: string,
@@ -333,6 +439,7 @@ export async function clickContinue(
     try {
         await page.click(selector, { timeout: clickTimeout, noWaitAfter: true });
     } catch (error) {
+        rethrowIfBrowserClosed(error, "submit_profile");
         if (await looksLikeChallenge(page, config.selectors.challengeHint)) {
             await handleChallenge(page, config, emit);
             return;
@@ -342,13 +449,13 @@ export async function clickContinue(
     await handleChallenge(page, config, emit);
 }
 
-/** Aborts with PHONE_REQUIRED when the page URL or text asks for phone/radar verification. */
 async function assertNoPhoneVerification(page: Page, stage: RegisterStage): Promise<void> {
     const url = page.url();
     let html = "";
     try {
         html = await page.content();
-    } catch {
+    } catch (error) {
+        rethrowIfBrowserClosed(error, stage);
         html = "";
     }
     if (PHONE_PATTERN.test(url) || PHONE_PATTERN.test(html)) {
@@ -360,7 +467,6 @@ async function assertNoPhoneVerification(page: Page, stage: RegisterStage): Prom
     }
 }
 
-/** Fills the verification code across one or several OTP input boxes. */
 async function fillOtp(page: Page, selector: string, code: string): Promise<void> {
     const inputs = page.locator(selector);
     const count = await inputs.count();
@@ -374,13 +480,6 @@ async function fillOtp(page: Page, selector: string, code: string): Promise<void
     }
 }
 
-/**
- * Real registration engine driven by Playwright/Chromium. Fills the signup
- * form, applies the packaged turnstilePatch CDP screenXY fix, still treats
- * unresolved challenges and phone verification as hard failures, enters the
- * emailed code and finally extracts the session token from the
- * `WorkosCursorSessionToken` cookie.
- */
 export class BrowserEngine implements RegisterEngine {
     readonly name = "browser";
 
@@ -404,18 +503,40 @@ export class BrowserEngine implements RegisterEngine {
             const page = context.pages()[0] ?? (await context.newPage());
 
             emit("open_signup", `opening ${config.signupUrl}`);
-            await page.goto(config.signupUrl, { waitUntil: "domcontentloaded", timeout });
+            let status: number | undefined;
+            try {
+                const response = await page.goto(config.signupUrl, { waitUntil: "domcontentloaded", timeout });
+                status = response?.status();
+            } catch (error) {
+                rethrowIfBrowserClosed(error, "open_signup");
+                throw error;
+            }
+            if (status === 429) {
+                throw pageBlockError("rate_limit", "open_signup");
+            }
+            await assertSignupReady(page, selectors.firstName, status, "open_signup");
 
             emit("submit_profile", `filling profile for ${identity.email}`);
-            await page.fill(selectors.firstName, identity.firstName, { timeout });
-            await page.fill(selectors.lastName, identity.lastName, { timeout });
-            await page.fill(selectors.email, identity.email, { timeout });
+            const fillTimeout = Math.min(timeout, CLICK_CONTINUE_TIMEOUT_MS);
+            try {
+                await page.fill(selectors.firstName, identity.firstName, { timeout: fillTimeout });
+                await page.fill(selectors.lastName, identity.lastName, { timeout: fillTimeout });
+                await page.fill(selectors.email, identity.email, { timeout: fillTimeout });
+            } catch (error) {
+                rethrowIfBrowserClosed(error, "submit_profile");
+                throw error;
+            }
             await clickContinue(page, selectors.continueButton, timeout, config, emit);
             await assertNoPhoneVerification(page, "submit_profile");
 
             if (await present(page, selectors.password)) {
                 emit("submit_password", "filling password");
-                await page.fill(selectors.password, identity.password, { timeout });
+                try {
+                    await page.fill(selectors.password, identity.password, { timeout: fillTimeout });
+                } catch (error) {
+                    rethrowIfBrowserClosed(error, "submit_password");
+                    throw error;
+                }
                 await clickContinue(page, selectors.continueButton, timeout, config, emit);
             }
 
@@ -440,13 +561,15 @@ export class BrowserEngine implements RegisterEngine {
             const sessionToken = sessionCookie ? parseSessionCookie(sessionCookie.value) : undefined;
 
             return { sessionToken, code };
+        } catch (error) {
+            rethrowIfBrowserClosed(error, "failed");
+            throw error;
         } finally {
             await closeOpened(opened);
         }
     }
 }
 
-/** Convenience factory returning a fresh {@link BrowserEngine}. */
 export function createBrowserEngine(): RegisterEngine {
     return new BrowserEngine();
 }

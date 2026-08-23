@@ -7,10 +7,15 @@ import { defaultConfig } from "../src/config.ts";
 import {
     CLICK_CONTINUE_TIMEOUT_MS,
     HEADLESS_SHELL_ENV,
+    assertSignupReady,
+    classifyPageBlock,
     clickContinue,
     disableHeadlessShell,
+    isClosedBrowserError,
     looksLikeChallenge,
+    planBrowserBinary,
     planChromiumLaunch,
+    rethrowIfBrowserClosed,
 } from "../src/engine/browser.ts";
 import { BrowserEngine, DryRunEngine, createEngine } from "../src/engine/index.ts";
 import { AutoRegError, ErrorCodes } from "../src/errors.ts";
@@ -56,6 +61,7 @@ function makeFakePage(opts: { html: () => string; onWaitForTimeout?: () => void 
     let lastClickOptions: { timeout?: number; noWaitAfter?: boolean } | undefined;
     const page = {
         content: async () => opts.html(),
+        title: async () => "",
         locator: (_selector: string) => ({ count: async () => 0 }),
         click: async (_selector: string, options?: { timeout?: number; noWaitAfter?: boolean }) => {
             clicks += 1;
@@ -123,12 +129,23 @@ test("playwright is a declared dependency: loading it never hits MODULE_NOT_FOUN
     assert.equal(typeof playwright.chromium.launch, "function");
 });
 
-test("planChromiumLaunch (headed + patch dir) loads the extension and strips --disable-extensions", () => {
+test("planChromiumLaunch (headed + patch dir) does NOT load the MV3 by default (Cloudflare flags it)", () => {
     const plan = planChromiumLaunch(true, "/tmp/turnstilePatch");
+    assert.equal(plan.loadExtension, false);
+    assert.ok(!plan.args.some((arg) => arg.startsWith("--load-extension")));
+    assert.equal(plan.ignoreDefaultArgs, undefined);
+});
+
+test("planChromiumLaunch loads --load-extension only when explicitly opted in", () => {
+    const plan = planChromiumLaunch(true, "/tmp/turnstilePatch", true);
     assert.equal(plan.loadExtension, true);
     assert.ok(plan.args.includes("--load-extension=/tmp/turnstilePatch"));
-    assert.ok(plan.args.includes("--disable-extensions-except=/tmp/turnstilePatch"));
     assert.deepEqual(plan.ignoreDefaultArgs, ["--disable-extensions"]);
+});
+
+test("planChromiumLaunch (headless + opt-in) still never passes --load-extension", () => {
+    const plan = planChromiumLaunch(false, "/tmp/turnstilePatch", true);
+    assert.equal(plan.loadExtension, false);
 });
 
 test("planChromiumLaunch (headless + patch dir) never passes --load-extension (no fighting --disable-extensions)", () => {
@@ -205,4 +222,67 @@ test("clickContinue (headed) waits out an initial challenge, then clicks once", 
     const config = testConfig({ headed: true });
     await clickContinue(handle.page, config.selectors.continueButton, config.timeoutMs, config, () => {});
     assert.equal(handle.clicks(), 1, "clicks Continue only after the challenge clears");
+});
+
+test("planBrowserBinary prefers channel chrome when a system binary exists", () => {
+    const plan = planBrowserBinary({}, (p) => p === "/usr/bin/google-chrome");
+    assert.equal(plan.source, "channel-chrome");
+    assert.equal(plan.channel, "chrome");
+});
+
+test("planBrowserBinary honors AUTO_REG_CHROME_PATH and bundled override", () => {
+    assert.deepEqual(
+        planBrowserBinary({ AUTO_REG_CHROME_PATH: "/opt/chrome" }, () => false),
+        { executablePath: "/opt/chrome", source: "executablePath" },
+    );
+    assert.deepEqual(
+        planBrowserBinary({ AUTO_REG_PLAYWRIGHT_CHANNEL: "bundled" }, () => true),
+        { source: "bundled" },
+    );
+});
+
+test("classifyPageBlock distinguishes 429, incompatible extension, and Just a moment", () => {
+    assert.equal(classifyPageBlock("", "", 429), "rate_limit");
+    assert.equal(classifyPageBlock("Incompatible browser extension"), "incompatible_extension");
+    assert.equal(classifyPageBlock("", "Just a moment..."), "interstitial");
+    assert.equal(classifyPageBlock("<h1>Create your account</h1>"), "ok");
+});
+
+test("assertSignupReady fails fast on Cloudflare interstitial without waiting", async () => {
+    const handle = makeFakePage({
+        html: () => "<title>Just a moment...</title><p>Performing security verification</p>",
+    });
+    await assert.rejects(
+        () => assertSignupReady(handle.page, 'input[name="first_name"]'),
+        (err: unknown) => err instanceof AutoRegError && err.code === ErrorCodes.CHALLENGE_REQUIRED,
+    );
+});
+
+test("Incompatible browser extension fails immediately even when headed", async () => {
+    const handle = makeFakePage({ html: () => "<p>Incompatible browser extension</p>" });
+    const config = testConfig({ headed: true });
+    await assert.rejects(
+        () =>
+            clickContinue(
+                handle.page,
+                config.selectors.continueButton,
+                config.timeoutMs,
+                config,
+                () => {},
+            ),
+        (err: unknown) =>
+            err instanceof AutoRegError &&
+            err.code === ErrorCodes.CHALLENGE_REQUIRED &&
+            /Incompatible browser extension/i.test(err.message),
+    );
+    assert.equal(handle.clicks(), 0);
+});
+
+test("isClosedBrowserError / rethrowIfBrowserClosed map Playwright close text", () => {
+    assert.equal(isClosedBrowserError(new Error("Target page, context or browser has been closed")), true);
+    assert.throws(
+        () => rethrowIfBrowserClosed(new Error("Target page, context or browser has been closed"), "submit_profile"),
+        (err: unknown) => err instanceof AutoRegError && err.code === ErrorCodes.BROWSER_CLOSED,
+    );
+    assert.doesNotThrow(() => rethrowIfBrowserClosed(new Error("timeout"), "submit_profile"));
 });
