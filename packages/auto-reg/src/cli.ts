@@ -4,7 +4,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { loadConfig, resolveVaultPassword } from "./config.ts";
+import { applyOverrides, loadConfig, resolveVaultPassword } from "./config.ts";
+import { checkNodeVersion } from "./node-version.ts";
 import { runRegister } from "./pipeline.ts";
 import type { AutoRegConfig, OutputConfig, PipelineEvent, RegisterResult } from "./types.js";
 
@@ -14,6 +15,7 @@ interface CliArgs {
     count?: number;
     dryRun: boolean;
     headed: boolean;
+    headless: boolean;
     help: boolean;
     unknown: string[];
 }
@@ -21,6 +23,13 @@ interface CliArgs {
 const DEFAULT_CONFIG_RELATIVE = path.join("examples", "config.example.json");
 
 async function main(argv: string[]): Promise<void> {
+    const nodeIssue = checkNodeVersion();
+    if (nodeIssue) {
+        console.error(`auto-reg: ${nodeIssue}`);
+        process.exitCode = 1;
+        return;
+    }
+
     const args = parseArgs(argv);
 
     if (args.help) {
@@ -74,9 +83,10 @@ async function main(argv: string[]): Promise<void> {
 
     config = applyOverrides(config, args);
 
-    // Fail fast when the vault passphrase is missing (applies to --dry-run
-    // too, since dry runs persist results). The passphrase is only checked
-    // here — it is never printed and never passed through stdout.
+    // Fail fast when the vault passphrase is missing. Dry runs without a
+    // passphrase already had encrypt switched off by applyOverrides, so this
+    // only trips for live runs. The passphrase is only checked here — it is
+    // never printed and never passed through stdout.
     try {
         resolveVaultPassword(config);
     } catch (err) {
@@ -130,15 +140,6 @@ function printSummary(results: RegisterResult[], output: OutputConfig): void {
     }
 }
 
-function applyOverrides(config: AutoRegConfig, args: CliArgs): AutoRegConfig {
-    return {
-        ...config,
-        count: args.count ?? config.count,
-        dryRun: args.dryRun ? true : config.dryRun,
-        headed: args.headed ? true : config.headed,
-    };
-}
-
 function resolveDefaultConfigPath(): string | undefined {
     const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const candidates = [
@@ -149,7 +150,7 @@ function resolveDefaultConfigPath(): string | undefined {
 }
 
 function parseArgs(argv: string[]): CliArgs {
-    const args: CliArgs = { dryRun: false, headed: false, help: false, unknown: [] };
+    const args: CliArgs = { dryRun: false, headed: false, headless: false, help: false, unknown: [] };
     const tokens = normalizeArgv(argv);
 
     while (tokens.length > 0) {
@@ -177,6 +178,9 @@ function parseArgs(argv: string[]): CliArgs {
                 break;
             case "--headed":
                 args.headed = true;
+                break;
+            case "--headless":
+                args.headless = true;
                 break;
             default:
                 if (token.startsWith("-")) {
@@ -219,7 +223,11 @@ function printUsage(): void {
             `                    Defaults to ${DEFAULT_CONFIG_RELATIVE} (package root or cwd).`,
             "  --count <n>       Number of accounts to register (overrides config).",
             "  --dry-run         Run without launching a real browser / mutating state.",
+            "                    Without a vault passphrase set, output encryption is",
+            "                    disabled automatically so dry runs need no secrets.",
             "  --headed          Run the browser engine headed (visible) instead of headless.",
+            "  --headless        Force headless. Live registers default to headed because the",
+            "                    Turnstile challenge needs a human in a visible window.",
             "  -h, --help        Show this help.",
             "",
             "Registering accounts in bulk usually violates Cursor's Terms of Service.",

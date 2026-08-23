@@ -10,6 +10,7 @@ import type {
     RegisterStage,
 } from "./types.js";
 import { AutoRegError } from "./errors.ts";
+import { sanitizeMessage } from "./sanitize.ts";
 import { createJsonSink } from "./sink/json.ts";
 
 /**
@@ -30,7 +31,9 @@ export interface PipelineDeps {
  * Each iteration builds a fresh identity, wires the mailbox's code-waiter into
  * the engine, runs the engine, and appends successful accounts to the sink. A
  * failure in one iteration is captured as a `failed` result and never blocks
- * the remaining iterations. Returns one {@link RegisterResult} per attempt.
+ * the remaining iterations; unless `output.persistFailures` is false, the
+ * failure is also appended to the sink in redacted form (no password, session
+ * token or code). Returns one {@link RegisterResult} per attempt.
  */
 export async function runRegister(
     config: AutoRegConfig,
@@ -115,13 +118,37 @@ async function runOne(args: RunOneArgs): Promise<RegisterResult> {
             ok: false,
             stage,
             identity: identity ?? placeholderIdentity(config),
-            error: errMessage(err),
+            // Engine/mailbox errors can quote page content or responses that
+            // contain secrets; redact before the message is stored anywhere.
+            error: sanitizeMessage(errMessage(err)),
             startedAt: startedAt.toISOString(),
             finishedAt: new Date().toISOString(),
         };
+        if (config.output.persistFailures !== false) {
+            try {
+                await sink.append(redactFailureForPersist(result));
+            } catch (persistErr) {
+                // Recording the failure is best-effort: a broken sink must
+                // not turn one failed registration into an aborted run.
+                emit(event("persist", `failed to persist failure record: ${errMessage(persistErr)}`));
+            }
+        }
         emit(event(stage, `failed ${result.identity.email || "(no email)"}`));
         return result;
     }
+}
+
+/**
+ * Copy of a failed result safe to write to the accounts file: no password, no
+ * session token and no verification code — a failed attempt is only useful
+ * for auditing which address/stage failed, never for signing in.
+ */
+function redactFailureForPersist(result: RegisterResult): RegisterResult {
+    const { sessionToken: _sessionToken, code: _code, ...rest } = result;
+    return {
+        ...rest,
+        identity: { ...result.identity, password: "" },
+    };
 }
 
 async function resolveDeps(overrides: Partial<PipelineDeps> = {}): Promise<PipelineDeps> {
@@ -168,7 +195,9 @@ function safeEmit(onEvent?: EventSink): EventSink {
     }
     return (e: PipelineEvent) => {
         try {
-            onEvent(e);
+            // Event messages may quote engine errors; redact secrets before
+            // they reach any listener (emails survive sanitizeMessage).
+            onEvent({ ...e, message: sanitizeMessage(e.message) });
         } catch {
             // A misbehaving event listener must never abort a registration run.
         }

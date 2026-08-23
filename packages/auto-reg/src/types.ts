@@ -79,6 +79,13 @@ export interface OutputConfig {
     accountsPath: string;
     /** When true, accounts file is AES-256-GCM. Passphrase from AUTO_REG_VAULT_PASSWORD. */
     encrypt: boolean;
+    /**
+     * When true (the default) failed attempts are also appended to the
+     * accounts file so operators can audit which addresses were burned — but
+     * always redacted: never the password, session token or verification
+     * code. Set to false to keep the accounts file success-only.
+     */
+    persistFailures?: boolean;
 }
 
 export interface SelectorConfig {

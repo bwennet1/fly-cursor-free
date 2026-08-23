@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 
-import { DEFAULT_SIGNUP_URL, applyEnvOverrides, defaultConfig, loadConfig } from "../src/config.ts";
+import {
+    DEFAULT_SIGNUP_URL,
+    applyEnvOverrides,
+    applyOverrides,
+    defaultConfig,
+    loadConfig,
+    resolveVaultPassword,
+} from "../src/config.ts";
 import { AutoRegError, ErrorCodes } from "../src/errors.ts";
 
 let dir: string;
@@ -134,6 +141,60 @@ test("applyEnvOverrides creates the imap block when only env credentials exist",
     assert.equal(config.email.imap?.password, "p");
     assert.equal(config.email.imap?.port, 993);
     assert.equal(config.email.imap?.mailbox, "INBOX");
+});
+
+test("applyOverrides: a live register defaults to a headed browser", () => {
+    const config = defaultConfig(); // dryRun=false, headed=false
+    const result = applyOverrides(config, {}, NO_ENV);
+    assert.equal(result.dryRun, false);
+    assert.equal(result.headed, true);
+});
+
+test("applyOverrides: --headless forces headless even for a live register", () => {
+    const result = applyOverrides(defaultConfig(), { headless: true }, NO_ENV);
+    assert.equal(result.dryRun, false);
+    assert.equal(result.headed, false);
+});
+
+test("applyOverrides: dry runs keep the configured headed value; --headed forces a window", () => {
+    const config = defaultConfig();
+    assert.equal(applyOverrides(config, { dryRun: true }, NO_ENV).headed, false);
+    assert.equal(applyOverrides(config, { dryRun: true, headed: true }, NO_ENV).headed, true);
+});
+
+test("applyOverrides: dry-run without a vault password disables output encryption", () => {
+    const config = defaultConfig(); // output.encrypt=true
+    const result = applyOverrides(config, { dryRun: true }, NO_ENV);
+    assert.equal(result.output.encrypt, false);
+    // The now-plaintext dry-run config no longer requires a passphrase.
+    assert.equal(resolveVaultPassword(result, NO_ENV), undefined);
+    // The input config was copied, not mutated.
+    assert.equal(config.output.encrypt, true);
+});
+
+test("applyOverrides: dry-run keeps encryption when the vault password is set", () => {
+    const result = applyOverrides(
+        defaultConfig(),
+        { dryRun: true },
+        { AUTO_REG_VAULT_PASSWORD: "test-passphrase" },
+    );
+    assert.equal(result.output.encrypt, true);
+});
+
+test("applyOverrides: live runs keep encryption so a missing passphrase fails fast", () => {
+    const result = applyOverrides(defaultConfig(), {}, NO_ENV);
+    assert.equal(result.output.encrypt, true);
+    assert.throws(() => resolveVaultPassword(result, NO_ENV));
+});
+
+test("applyOverrides: --count and --dry-run override the config file", () => {
+    const result = applyOverrides(defaultConfig(), { count: 5, dryRun: true }, NO_ENV);
+    assert.equal(result.count, 5);
+    assert.equal(result.dryRun, true);
+});
+
+test("defaultConfig persists failures by default", () => {
+    assert.equal(defaultConfig().output.persistFailures, true);
 });
 
 test("invalid codeRegex is rejected", async () => {

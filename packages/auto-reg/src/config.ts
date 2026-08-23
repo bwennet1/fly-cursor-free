@@ -38,6 +38,7 @@ export function defaultConfig(): AutoRegConfig {
         output: {
             accountsPath: "accounts.json",
             encrypt: true,
+            persistFailures: true,
         },
         selectors: {
             firstName: 'input[name="first_name"]',
@@ -121,6 +122,61 @@ export function resolveVaultPassword(
         );
     }
     return resolved;
+}
+
+/** CLI flags that override the loaded config. */
+export interface CliOverrides {
+    count?: number;
+    dryRun?: boolean;
+    headed?: boolean;
+    headless?: boolean;
+}
+
+/**
+ * Applies CLI flag overrides on top of a loaded config.
+ *
+ * Headed/headless resolution: a live register (dry-run off) defaults to a
+ * headed browser because the signup page virtually always shows a Turnstile
+ * challenge that only a human in a visible window can complete — headless
+ * live runs just burn mailbox quota. `--headless` is the explicit escape
+ * hatch and always wins; `--headed` forces a window even for dry runs.
+ *
+ * Encryption: a dry run should work without any secrets configured, so when
+ * dry-run is active and no vault passphrase is available (neither
+ * AUTO_REG_VAULT_PASSWORD nor an injected value), output.encrypt is switched
+ * off instead of failing fast. Live runs keep encrypt as configured and still
+ * fail fast later when the passphrase is missing.
+ */
+export function applyOverrides(
+    config: AutoRegConfig,
+    args: CliOverrides,
+    env: Record<string, string | undefined> = process.env,
+): AutoRegConfig {
+    const dryRun = args.dryRun ? true : config.dryRun;
+
+    let headed: boolean;
+    if (args.headless) {
+        headed = false;
+    } else if (args.headed) {
+        headed = true;
+    } else if (!dryRun) {
+        headed = true;
+    } else {
+        headed = config.headed;
+    }
+
+    const output = { ...config.output };
+    if (dryRun && output.encrypt && !env[ENV_KEYS.vaultPassword]) {
+        output.encrypt = false;
+    }
+
+    return {
+        ...config,
+        count: args.count ?? config.count,
+        dryRun,
+        headed,
+        output,
+    };
 }
 
 /** Throws AutoRegError(init/CONFIG) when a required field is missing or invalid. */

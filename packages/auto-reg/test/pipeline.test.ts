@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { runRegister } from "../src/pipeline.ts";
 import type { PipelineDeps } from "../src/pipeline.ts";
@@ -139,7 +142,13 @@ test("a failing iteration is recorded but does not stop the rest", async () => {
     assert.match(results[0].error ?? "", /boom/);
     assert.ok(results[1].ok);
     assert.ok(results[2].ok);
-    assert.equal(appended.length, 2);
+    // The failure is persisted too (persistFailures defaults to true) — but
+    // redacted: the stored record must never carry the generated password.
+    assert.equal(appended.length, 3);
+    const persistedFailures = appended.filter((r) => !r.ok);
+    assert.equal(persistedFailures.length, 1);
+    assert.equal(persistedFailures[0].identity.email, "user1@example.com");
+    assert.equal(persistedFailures[0].identity.password, "");
 });
 
 test("failure while creating an identity yields a placeholder result and continues", async () => {
@@ -187,7 +196,10 @@ test("failure while creating an identity yields a placeholder result and continu
     assert.equal(results[0].identity.email, "");
     assert.equal(results[0].identity.domain, "example.com");
     assert.ok(results[1].ok);
-    assert.equal(appended.length, 1);
+    // Placeholder failure record + the one success.
+    assert.equal(appended.length, 2);
+    assert.equal(appended[0].ok, false);
+    assert.ok(appended[1].ok);
 });
 
 test("pipeline events never contain the account password", async () => {
@@ -322,4 +334,124 @@ test("a mailbox without allocateAddress keeps the generated identity email", asy
     assert.ok(results[0].ok);
     assert.equal(results[0].identity.email, "user1@example.com");
     assert.equal(results[0].identity.domain, "example.com");
+});
+
+test("a persisted failure carries no password, session token or verification code", async () => {
+    const appended: RegisterResult[] = [];
+    const deps: Partial<PipelineDeps> = {
+        createIdentity: (config: AutoRegConfig) => ({
+            firstName: "First",
+            lastName: "Last",
+            email: `victim@${config.email.domain}`,
+            password: "hunter2-super-secret",
+            domain: config.email.domain,
+        }),
+        createMailbox: () => ({
+            name: "m",
+            async waitForCode() {
+                return "654321";
+            },
+        }),
+        createEngine: () => ({
+            name: "e",
+            async register() {
+                // A worst-case engine error quoting every kind of secret.
+                throw new AutoRegError(
+                    "capture_session",
+                    "TOKEN",
+                    "capture failed for victim@example.com: code 654321, " +
+                        "password=hunter2-super-secret, " +
+                        "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl, " +
+                        "token 0123456789abcdef0123456789abcdef",
+                );
+            },
+        }),
+        createSink: () => ({
+            async append(r: RegisterResult) {
+                appended.push(r);
+            },
+        }),
+    };
+
+    const results = await runRegister(makeConfig({ count: 1 }), undefined, deps);
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, false);
+    assert.equal(appended.length, 1);
+
+    const persisted = appended[0];
+    assert.equal(persisted.ok, false);
+    assert.equal(persisted.stage, "capture_session");
+    assert.equal(persisted.identity.email, "victim@example.com");
+    assert.equal(persisted.identity.password, "");
+    assert.equal("sessionToken" in persisted, false);
+    assert.equal("code" in persisted, false);
+
+    // Nothing secret survives serialization; the email does.
+    const raw = JSON.stringify(persisted);
+    assert.doesNotMatch(raw, /hunter2/);
+    assert.doesNotMatch(raw, /654321/);
+    assert.doesNotMatch(raw, /eyJ/);
+    assert.doesNotMatch(raw, /0123456789abcdef0123456789abcdef/);
+    assert.match(persisted.error ?? "", /victim@example\.com/);
+});
+
+test("output.persistFailures=false keeps the accounts file success-only", async () => {
+    const { deps, appended } = makeStubDeps({ failEmails: new Set(["user1@example.com"]) });
+    const config = makeConfig({ count: 2 });
+    config.output = { ...config.output, persistFailures: false };
+
+    const results = await runRegister(config, undefined, deps);
+
+    assert.equal(results.length, 2);
+    assert.equal(results[0].ok, false);
+    assert.ok(results[1].ok);
+    assert.equal(appended.length, 1);
+    assert.ok(appended[0].ok);
+});
+
+test("a broken sink cannot escalate one failure into an aborted run", async () => {
+    const { deps } = makeStubDeps({ failEmails: new Set(["user1@example.com"]) });
+    deps.createSink = () => ({
+        async append(r: RegisterResult) {
+            if (!r.ok) {
+                throw new Error("disk full");
+            }
+        },
+    });
+
+    const results = await runRegister(makeConfig({ count: 2 }), undefined, deps);
+
+    assert.equal(results.length, 2);
+    assert.equal(results[0].ok, false);
+    assert.match(results[0].error ?? "", /boom/);
+    assert.ok(results[1].ok);
+});
+
+test("dry-run with encrypt off persists plaintext accounts without the vault env", async () => {
+    // Uses the real JSON sink (createSink is not stubbed): this is the exact
+    // configuration applyOverrides produces for a dry run when
+    // AUTO_REG_VAULT_PASSWORD is absent, and it must not need that variable.
+    const previous = process.env.AUTO_REG_VAULT_PASSWORD;
+    delete process.env.AUTO_REG_VAULT_PASSWORD;
+    const dir = await mkdtemp(join(tmpdir(), "auto-reg-pipeline-"));
+    try {
+        const accountsPath = join(dir, "accounts.json");
+        const config = makeConfig({ count: 1, dryRun: true });
+        config.output = { accountsPath, encrypt: false };
+        const { deps } = makeStubDeps();
+        delete deps.createSink;
+
+        const results = await runRegister(config, undefined, deps);
+
+        assert.ok(results[0].ok);
+        const written = JSON.parse(await readFile(accountsPath, "utf8")) as RegisterResult[];
+        assert.equal(written.length, 1);
+        assert.equal(written[0].identity.email, "user1@example.com");
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+        if (previous !== undefined) {
+            process.env.AUTO_REG_VAULT_PASSWORD = previous;
+        }
+    }
 });
