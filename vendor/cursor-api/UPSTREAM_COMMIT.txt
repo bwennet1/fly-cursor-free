@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/waterwoodwind/cursor-api
+Cloned commit SHA: 3ab975a5b3c740fed34f62cdeece6d1dfbc62236
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

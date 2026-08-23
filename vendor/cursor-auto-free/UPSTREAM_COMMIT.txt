@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/chengazhen/cursor-auto-free
+Cloned commit SHA: d38d4d08675b636785b146029136ae27edc55da3
+Cloned at (UTC): 2026-08-23
+Clone method: git clone --depth 1
+Note: metadata added by FlyCursor research branch.

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+release-build/
+build-config.json
+.cursor-free/
+*.local.json
+.DS_Store
+Thumbs.db
